@@ -36,7 +36,7 @@ class ScanControllerTest {
     @Test
     void startScanReturnsCreatedReport() throws Exception {
         ScanReport report = new ScanReport(
-                "scan-1", "http://localhost:8080", Instant.now(), Instant.now(), 42, 3,
+                "scan-1", "http://localhost:8080", Instant.now(), Instant.now(), 42, 3, null,
                 List.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Severity.INFO));
         when(scanService.runScan(eq("localhost:8080"))).thenReturn(report);
 

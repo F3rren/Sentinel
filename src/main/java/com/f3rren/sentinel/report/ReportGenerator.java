@@ -21,10 +21,10 @@ import java.util.Map;
 public class ReportGenerator {
 
     public ScanReport buildReport(String id, String targetUrl, Instant startedAt, Instant finishedAt,
-                                   int endpointsDiscovered, List<Finding> findings) {
+                                   int endpointsDiscovered, String openApiSpecUrl, List<Finding> findings) {
         ScanSummary summary = summarize(findings);
         long durationMillis = Duration.between(startedAt, finishedAt).toMillis();
-        return new ScanReport(id, targetUrl, startedAt, finishedAt, durationMillis, endpointsDiscovered, findings, summary);
+        return new ScanReport(id, targetUrl, startedAt, finishedAt, durationMillis, endpointsDiscovered, openApiSpecUrl, findings, summary);
     }
 
     private ScanSummary summarize(List<Finding> findings) {

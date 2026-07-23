@@ -12,6 +12,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -21,6 +22,8 @@ import java.util.stream.Collectors;
  */
 @Component
 public class SentinelHttpClient {
+
+    private static final Set<HttpMethod> BODY_METHODS = Set.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH);
 
     private final HttpClient httpClient;
     private final String userAgent;
@@ -40,33 +43,47 @@ public class SentinelHttpClient {
     }
 
     public HttpResponseData get(String url) throws IOException, InterruptedException {
+        return sendWithoutBody(HttpMethod.GET, url);
+    }
+
+    public HttpResponseData postForm(String url, Map<String, String> formParams) throws IOException, InterruptedException {
+        return sendWithForm(HttpMethod.POST, url, formParams);
+    }
+
+    /**
+     * Sends {@code params} the way a real client would for the given HTTP verb: appended to
+     * the query string for body-less verbs (GET, DELETE, ...), or as a form-urlencoded body
+     * for verbs that carry one (POST, PUT, PATCH). This matters once endpoints come from an
+     * OpenAPI spec, which can declare any of these verbs.
+     */
+    public HttpResponseData exchange(HttpMethod method, String url, Map<String, String> params) throws IOException, InterruptedException {
+        if (BODY_METHODS.contains(method)) {
+            return sendWithForm(method, url, params);
+        }
+        String separator = url.contains("?") ? "&" : "?";
+        String query = encodeForm(params);
+        String finalUrl = query.isEmpty() ? url : url + separator + query;
+        return sendWithoutBody(method, finalUrl);
+    }
+
+    private HttpResponseData sendWithoutBody(HttpMethod method, String url) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(requestTimeout)
                 .header("User-Agent", userAgent)
-                .GET()
+                .method(method.name(), HttpRequest.BodyPublishers.noBody())
                 .build();
         return send(request);
     }
 
-    public HttpResponseData postForm(String url, Map<String, String> formParams) throws IOException, InterruptedException {
+    private HttpResponseData sendWithForm(HttpMethod method, String url, Map<String, String> formParams) throws IOException, InterruptedException {
         String body = encodeForm(formParams);
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(requestTimeout)
                 .header("User-Agent", userAgent)
                 .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .method(method.name(), HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                 .build();
         return send(request);
-    }
-
-    public HttpResponseData exchange(HttpMethod method, String url, Map<String, String> params) throws IOException, InterruptedException {
-        if (method == HttpMethod.POST) {
-            return postForm(url, params);
-        }
-        String separator = url.contains("?") ? "&" : "?";
-        String query = encodeForm(params);
-        String finalUrl = query.isEmpty() ? url : url + separator + query;
-        return get(finalUrl);
     }
 
     private HttpResponseData send(HttpRequest request) throws IOException, InterruptedException {

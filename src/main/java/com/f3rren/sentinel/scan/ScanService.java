@@ -2,6 +2,8 @@ package com.f3rren.sentinel.scan;
 
 import com.f3rren.sentinel.attack.AttackModule;
 import com.f3rren.sentinel.discovery.EndpointDiscoveryService;
+import com.f3rren.sentinel.discovery.openapi.OpenApiDiscoveryResult;
+import com.f3rren.sentinel.discovery.openapi.OpenApiDiscoveryService;
 import com.f3rren.sentinel.model.Endpoint;
 import com.f3rren.sentinel.model.Finding;
 import com.f3rren.sentinel.model.ScanReport;
@@ -18,6 +20,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,6 +35,7 @@ public class ScanService {
 
     private static final Logger log = LoggerFactory.getLogger(ScanService.class);
 
+    private final OpenApiDiscoveryService openApiDiscoveryService;
     private final EndpointDiscoveryService discoveryService;
     private final List<AttackModule> attackModules;
     private final ReportGenerator reportGenerator;
@@ -39,11 +43,13 @@ public class ScanService {
     private final Map<String, ScanReport> reports = new ConcurrentHashMap<>();
 
     public ScanService(
+            OpenApiDiscoveryService openApiDiscoveryService,
             EndpointDiscoveryService discoveryService,
             List<AttackModule> attackModules,
             ReportGenerator reportGenerator,
             @Value("${sentinel.scan.max-endpoints:25}") int maxEndpoints
     ) {
+        this.openApiDiscoveryService = openApiDiscoveryService;
         this.discoveryService = discoveryService;
         this.attackModules = attackModules;
         this.reportGenerator = reportGenerator;
@@ -54,7 +60,21 @@ public class ScanService {
         String targetUrl = normalizeTargetUrl(rawTargetUrl);
         Instant startedAt = Instant.now();
 
-        List<Endpoint> endpoints = discoveryService.discover(targetUrl);
+        // OpenAPI/Swagger is the preferred source: when the target exposes one, it enumerates
+        // the real API surface (including endpoints no link ever points to) far more reliably
+        // than crawling HTML. The HTML crawl still runs to pick up anything Swagger doesn't
+        // cover (e.g. a plain login form) and its results are merged in, deduplicated.
+        Optional<OpenApiDiscoveryResult> openApi = openApiDiscoveryService.discover(targetUrl);
+        List<Endpoint> endpoints = new ArrayList<>(openApi.map(OpenApiDiscoveryResult::endpoints).orElseGet(List::of));
+        for (Endpoint crawled : discoveryService.discover(targetUrl)) {
+            boolean alreadyKnown = endpoints.stream()
+                    .anyMatch(e -> e.method() == crawled.method() && e.url().equals(crawled.url()));
+            if (!alreadyKnown) {
+                endpoints.add(crawled);
+            }
+        }
+        String openApiSpecUrl = openApi.map(OpenApiDiscoveryResult::specUrl).orElse(null);
+
         List<Endpoint> endpointsToScan = endpoints.size() > maxEndpoints
                 ? endpoints.subList(0, maxEndpoints)
                 : endpoints;
@@ -72,7 +92,7 @@ public class ScanService {
 
         Instant finishedAt = Instant.now();
         String id = UUID.randomUUID().toString();
-        ScanReport report = reportGenerator.buildReport(id, targetUrl, startedAt, finishedAt, endpoints.size(), findings);
+        ScanReport report = reportGenerator.buildReport(id, targetUrl, startedAt, finishedAt, endpoints.size(), openApiSpecUrl, findings);
         reports.put(id, report);
         return report;
     }
