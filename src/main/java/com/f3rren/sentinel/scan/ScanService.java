@@ -12,6 +12,7 @@ import com.f3rren.sentinel.web.exception.InvalidTargetException;
 import com.f3rren.sentinel.web.exception.ScanNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -47,13 +48,16 @@ public class ScanService {
     public ScanService(
             OpenApiDiscoveryService openApiDiscoveryService,
             EndpointDiscoveryService discoveryService,
-            List<AttackModule> attackModules,
+            // Every attack module can be individually disabled (sentinel.scan.<module>.enabled=false),
+            // so this list can legitimately be empty - not required, or Spring refuses to start the
+            // whole app the moment someone disables the only module that happens to exist.
+            @Autowired(required = false) List<AttackModule> attackModules,
             ReportGenerator reportGenerator,
             @Value("${sentinel.scan.max-endpoints:25}") int maxEndpoints
     ) {
         this.openApiDiscoveryService = openApiDiscoveryService;
         this.discoveryService = discoveryService;
-        this.attackModules = attackModules;
+        this.attackModules = attackModules != null ? attackModules : List.of();
         this.reportGenerator = reportGenerator;
         this.maxEndpoints = maxEndpoints;
     }

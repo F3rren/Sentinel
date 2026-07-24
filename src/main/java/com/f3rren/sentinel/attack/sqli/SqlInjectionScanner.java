@@ -10,6 +10,7 @@ import com.f3rren.sentinel.model.Severity;
 import com.f3rren.sentinel.model.VulnerabilityType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -24,8 +25,15 @@ import java.util.UUID;
  * flips shape between an always-true and an always-false boolean condition (boolean-based /
  * blind). Both checks are best-effort heuristics aimed at a low false-positive rate rather
  * than exhaustive coverage.
+ * <p>
+ * Disabled by setting {@code sentinel.scan.sql-injection.enabled=false} (env
+ * {@code SENTINEL_SCAN_SQL_INJECTION_ENABLED=false}): the bean simply isn't created, so it
+ * never joins the {@code List<AttackModule>} that {@code ScanService} runs against every
+ * endpoint. Future modules (XSS, brute force, ...) follow the same
+ * {@code sentinel.scan.<module>.enabled} convention.
  */
 @Component
+@ConditionalOnProperty(prefix = "sentinel.scan.sql-injection", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class SqlInjectionScanner implements AttackModule {
 
     private static final Logger log = LoggerFactory.getLogger(SqlInjectionScanner.class);

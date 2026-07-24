@@ -87,6 +87,9 @@ Proprietà in `src/main/resources/application.properties` (sovrascrivibili anche
 | `sentinel.scan.auto-target-url` | _(vuoto)_ | Se impostata, scansione automatica all'avvio su questo URL, zero comandi manuali |
 | `sentinel.scan.auto-scan-max-attempts` | `20` | Tentativi di raggiungibilità del target prima di rinunciare all'auto-scan |
 | `sentinel.scan.auto-scan-retry-delay-ms` | `3000` | Attesa tra un tentativo e l'altro |
+| `sentinel.scan.sql-injection.enabled` | `true` | Abilita/disabilita il modulo SQL injection. A `false` il modulo non viene nemmeno istanziato |
+
+Ogni modulo di attacco futuro (XSS, brute force, ...) seguirà la stessa convenzione `sentinel.scan.<modulo>.enabled`.
 
 ## Sviluppo
 
