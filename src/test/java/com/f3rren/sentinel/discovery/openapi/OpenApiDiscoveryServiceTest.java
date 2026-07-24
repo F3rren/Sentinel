@@ -130,8 +130,13 @@ class OpenApiDiscoveryServiceTest {
                     "properties": {
                       "name": {"type": "string"},
                       "volume": {"type": "integer"},
-                      "saltwater": {"type": "boolean"}
+                      "saltwater": {"type": "boolean"},
+                      "type": { "$ref": "#/components/schemas/AquariumType" }
                     }
+                  },
+                  "AquariumType": {
+                    "type": "string",
+                    "enum": ["FRESHWATER", "SALTWATER"]
                   }
                 }
               }
@@ -257,6 +262,10 @@ class OpenApiDiscoveryServiceTest {
         assertThat(body.path("volume").asInt()).isEqualTo(1);
         assertThat(body.path("saltwater").isBoolean()).isTrue();
         assertThat(body.path("saltwater").asBoolean()).isTrue();
+        // "type" is a $ref to a separate enum schema, not inlined on the property itself: it
+        // must resolve to a real enum constant, not the generic "test" string fallback that
+        // would fail Jackson's enum deserialization before validation even runs.
+        assertThat(body.path("type").asText()).isEqualTo("FRESHWATER");
 
         Endpoint noBody = find(endpoints, HttpMethod.POST, "http://localhost:8080/no-body");
         assertThat(noBody.requestBodySample()).isNull();

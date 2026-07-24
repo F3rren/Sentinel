@@ -299,20 +299,28 @@ public class OpenApiDiscoveryService {
         }
         ObjectNode body = objectMapper.createObjectNode();
         for (Map.Entry<String, JsonNode> property : properties.properties()) {
-            setSampleValue(body, property.getKey(), property.getValue());
+            setSampleValue(root, body, property.getKey(), property.getValue());
         }
         return body.isEmpty() ? null : body.toString();
     }
 
-    private void setSampleValue(ObjectNode target, String name, JsonNode propertySchema) {
-        String type = propertySchema.path("type").asText("string");
+    /**
+     * A property can itself be a {@code $ref} - the usual shape for an enum field, documented
+     * as its own named schema (e.g. {@code AquariumType}) rather than inlined. Resolving it
+     * here, not just once for the whole request body, is what lets {@link #sampleValueForSchema}
+     * find the real {@code enum} list and pick an actual constant instead of falling back to a
+     * generic string that fails enum deserialization before validation even runs.
+     */
+    private void setSampleValue(JsonNode root, ObjectNode target, String name, JsonNode propertySchema) {
+        JsonNode resolved = resolveSchemaRef(root, propertySchema);
+        String type = resolved.path("type").asText("string");
         switch (type) {
             case "integer" -> target.put(name, 1);
             case "number" -> target.put(name, 1.0);
             case "boolean" -> target.put(name, true);
             case "array" -> target.putArray(name);
             case "object" -> target.putObject(name);
-            default -> target.put(name, sampleValueForSchema(propertySchema));
+            default -> target.put(name, sampleValueForSchema(resolved));
         }
     }
 
