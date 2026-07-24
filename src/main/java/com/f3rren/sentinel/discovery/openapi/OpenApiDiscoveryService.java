@@ -200,32 +200,49 @@ public class OpenApiDiscoveryService {
                 if (!SUPPORTED_METHODS.contains(methodName) || !opEntry.getValue().isObject()) {
                     continue;
                 }
-                JsonNode operation = opEntry.getValue();
-
-                List<JsonNode> params = new ArrayList<>(sharedParams);
-                params.addAll(asList(operation.path("parameters")));
-
-                String resolvedPath = resolvePathParams(pathTemplate, params);
-                if (resolvedPath == null) {
-                    // A path parameter isn't documented, so we can't build a valid concrete URL.
-                    continue;
+                try {
+                    Endpoint endpoint = buildEndpoint(origin, pathTemplate, methodName, opEntry.getValue(),
+                            sharedParams, root);
+                    if (endpoint != null) {
+                        endpoints.add(endpoint);
+                    }
+                } catch (Exception e) {
+                    // One malformed operation (an unexpected schema shape, an unresolvable ref,
+                    // ...) must not cost every other endpoint documented in the same spec: a
+                    // single unguarded exception here used to unwind this whole method, silently
+                    // dropping every path that came after the bad one in document order. Logged
+                    // at WARN, not DEBUG, precisely because it previously went unnoticed.
+                    log.warn("Skipping {} {} - failed to build endpoint from its OpenAPI operation: {}",
+                            methodName.toUpperCase(), pathTemplate, e.getMessage(), e);
                 }
-
-                List<EndpointParam> queryParams = params.stream()
-                        .filter(p -> "query".equals(p.path("in").asText()))
-                        .map(p -> p.path("name").asText())
-                        .filter(name -> !name.isBlank())
-                        .distinct()
-                        .map(name -> new EndpointParam(name, sampleValueForParameter(findParam(params, name))))
-                        .toList();
-
-                String requestBodySample = buildRequestBodySample(root, operation);
-
-                endpoints.add(new Endpoint(origin + resolvedPath, HttpMethod.valueOf(methodName.toUpperCase()),
-                        queryParams, requestBodySample));
             }
         }
         return endpoints;
+    }
+
+    private Endpoint buildEndpoint(String origin, String pathTemplate, String methodName, JsonNode operation,
+            List<JsonNode> sharedParams, JsonNode root) {
+        List<JsonNode> params = new ArrayList<>(sharedParams);
+        params.addAll(asList(operation.path("parameters")));
+
+        String resolvedPath = resolvePathParams(pathTemplate, params);
+        if (resolvedPath == null) {
+            // A path parameter isn't documented, so we can't build a valid concrete URL.
+            return null;
+        }
+
+        List<EndpointParam> queryParams = params.stream()
+                .filter(p -> "query".equals(p.path("in").asText()))
+                .map(p -> p.path("name").asText())
+                .filter(name -> !name.isBlank())
+                .distinct()
+                .map(name -> new EndpointParam(name, sampleValueForParameter(findParam(params, name))))
+                .toList();
+
+        String requestBodySample = buildRequestBodySample(root, operation);
+
+        return new Endpoint(origin + resolvedPath, HttpMethod.valueOf(methodName.toUpperCase()),
+                queryParams, requestBodySample);
     }
 
     private JsonNode findParam(List<JsonNode> params, String name) {
