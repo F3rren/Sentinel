@@ -134,6 +134,12 @@ public class ScanService {
         List<Endpoint> endpointsToScan = methodFiltered.size() > maxEndpoints
                 ? methodFiltered.subList(0, maxEndpoints)
                 : methodFiltered;
+        // Discovery and filtering happen in several steps before anything is attacked; when an
+        // endpoint that should exist doesn't produce a finding, this is the only way to tell
+        // whether it ever made it this far at all, as opposed to being dropped earlier.
+        log.info("Endpoint da attaccare ({}): {}", endpointsToScan.size(), endpointsToScan.stream()
+                .map(e -> e.method() + " " + e.url())
+                .toList());
 
         List<Finding> findings = new ArrayList<>();
         for (Endpoint endpoint : endpointsToScan) {
