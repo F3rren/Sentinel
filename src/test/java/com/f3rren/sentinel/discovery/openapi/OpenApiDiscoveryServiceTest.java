@@ -167,6 +167,7 @@ class OpenApiDiscoveryServiceTest {
                     "properties": {
                       "name": {"type": "string", "minLength": 2, "maxLength": 100},
                       "type": {"type": "string", "enum": ["saltwater", "freshwater"]},
+                      "volume": {"type": "integer", "maximum": 100000},
                       "imageUrl": {
                         "type": "string",
                         "pattern": "^$|^https?://[^\\\\s/$.?#].[^\\\\s]*$"
@@ -307,7 +308,7 @@ class OpenApiDiscoveryServiceTest {
     }
 
     @Test
-    void omitsOptionalPropertiesNotListedAsRequired() throws Exception {
+    void populatesOptionalPropertiesExceptThoseWithAPatternConstraint() throws Exception {
         when(httpClient.get(anyString())).thenAnswer(invocation -> {
             String url = invocation.getArgument(0);
             if (url.endsWith("/v3/api-docs")) {
@@ -327,6 +328,12 @@ class OpenApiDiscoveryServiceTest {
         // name and type are required: must be present.
         assertThat(body.has("name")).isTrue();
         assertThat(body.path("type").asText()).isEqualTo("saltwater");
+        // volume is optional but has no pattern to violate - a Java primitive int field backing
+        // it would otherwise deserialize to 0 when the property is absent, which can fail its
+        // own validation (e.g. @Positive) independently of anything auth-related. Sending a real
+        // value avoids that trap.
+        assertThat(body.path("volume").isInt()).isTrue();
+        assertThat(body.path("volume").asInt()).isEqualTo(1);
         // imageUrl is optional and guarded by a URL pattern our generic sample can't satisfy -
         // omitting it (leaving it null/absent) passes validation; a "test" placeholder wouldn't.
         assertThat(body.has("imageUrl")).isFalse();
