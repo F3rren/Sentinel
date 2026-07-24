@@ -171,7 +171,9 @@ class OpenApiDiscoveryServiceTest {
                       "imageUrl": {
                         "type": "string",
                         "pattern": "^$|^https?://[^\\\\s/$.?#].[^\\\\s]*$"
-                      }
+                      },
+                      "tags": {"type": "array", "items": {"type": "string"}},
+                      "metadata": {"type": "object"}
                     }
                   }
                 }
@@ -337,6 +339,11 @@ class OpenApiDiscoveryServiceTest {
         // imageUrl is optional and guarded by a URL pattern our generic sample can't satisfy -
         // omitting it (leaving it null/absent) passes validation; a "test" placeholder wouldn't.
         assertThat(body.has("imageUrl")).isFalse();
+        // tags/metadata are optional array/object properties: an empty [] or {} would still be a
+        // non-null value, so a @Size(min=1) or a cascaded @Valid on a nested DTO could reject it
+        // where an absent field would have been skipped entirely. Omit them too.
+        assertThat(body.has("tags")).isFalse();
+        assertThat(body.has("metadata")).isFalse();
     }
 
     private Endpoint find(List<Endpoint> endpoints, HttpMethod method, String url) {

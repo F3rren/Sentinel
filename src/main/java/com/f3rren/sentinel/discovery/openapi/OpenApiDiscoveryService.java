@@ -287,12 +287,11 @@ public class OpenApiDiscoveryService {
      * and boolean fields get a value of the right JSON type, which is far more likely to pass
      * basic deserialization/validation and reach the endpoint's real logic.
      * <p>
-     * Required properties are always populated. Optional properties are populated too, unless
-     * they carry a {@code pattern} constraint - a regex we have no general way to satisfy (a URL
-     * format, an ISO code, ...), so guessing there is more likely to trip validation than to
-     * help. Everything else optional (plain numbers, booleans, enums, formatted strings) is worth
-     * sending: a Java primitive field (e.g. an {@code int} with {@code @Positive}) is often
-     * "optional" from the schema's point of view - {@code required} only reflects
+     * Required properties are always populated. Optional properties are populated too unless
+     * {@link #isUnsafeToGuess} flags them (a {@code pattern}-guarded string, an array, a nested
+     * object) - for everything else (plain numbers, booleans, enums, formatted strings) sending a
+     * real value is worth it: a Java primitive field (e.g. an {@code int} with {@code @Positive})
+     * is often "optional" from the schema's point of view - {@code required} only reflects
      * {@code @NotNull}/{@code @NotBlank} - but still gets deserialized from a missing JSON field
      * to its primitive default ({@code 0}, {@code false}), which can fail validation on its own;
      * a real generated value avoids that trap. Falls back to populating every property when
@@ -313,7 +312,7 @@ public class OpenApiDiscoveryService {
         ObjectNode body = objectMapper.createObjectNode();
         for (Map.Entry<String, JsonNode> property : properties.properties()) {
             boolean required = requiredNames.isEmpty() || requiredNames.contains(property.getKey());
-            if (!required && hasPatternConstraint(root, property.getValue())) {
+            if (!required && isUnsafeToGuess(root, property.getValue())) {
                 continue;
             }
             setSampleValue(root, body, property.getKey(), property.getValue());
@@ -321,8 +320,22 @@ public class OpenApiDiscoveryService {
         return body.isEmpty() ? null : body.toString();
     }
 
-    private boolean hasPatternConstraint(JsonNode root, JsonNode propertySchema) {
-        return resolveSchemaRef(root, propertySchema).has("pattern");
+    /**
+     * An optional property is worth populating only when a generic sample can't make its
+     * validation worse than leaving it out. A {@code pattern} is the clearest case (a regex we
+     * can't satisfy in general). Collections and nested objects are the other: JSR-380's
+     * {@code @Size}/{@code @NotEmpty} (and cascaded {@code @Valid} on a nested DTO) validate a
+     * *present* value's shape, so the empty array/object {@link #setSampleValue} would otherwise
+     * emit can fail validation that an absent (null) field would have skipped entirely - the same
+     * trap this method exists to avoid, just via a container instead of a bad scalar.
+     */
+    private boolean isUnsafeToGuess(JsonNode root, JsonNode propertySchema) {
+        JsonNode resolved = resolveSchemaRef(root, propertySchema);
+        if (resolved.has("pattern")) {
+            return true;
+        }
+        String type = resolved.path("type").asText("string");
+        return "array".equals(type) || "object".equals(type);
     }
 
     private Set<String> requiredPropertyNames(JsonNode schema) {
