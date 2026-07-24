@@ -36,7 +36,7 @@ class ScanControllerTest {
     @Test
     void startScanReturnsCreatedReport() throws Exception {
         ScanReport report = new ScanReport(
-                "scan-1", "http://localhost:8080", Instant.now(), Instant.now(), 42, 3, null,
+                "scan-1", "http://localhost:8080", Instant.now(), Instant.now(), 42, 3, 3, null,
                 List.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Severity.INFO),
                 "Investigazione su http://localhost:8080 completata in 42 ms. Nessuna vulnerabilità rilevata.");
         when(scanService.runScan(eq("localhost:8080"))).thenReturn(report);
@@ -81,7 +81,7 @@ class ScanControllerTest {
     @Test
     void getLatestScanReturnsMostRecentReport() throws Exception {
         ScanReport report = new ScanReport(
-                "scan-auto", "http://api-gateway:8080", Instant.now(), Instant.now(), 3646, 46,
+                "scan-auto", "http://api-gateway:8080", Instant.now(), Instant.now(), 3646, 46, 46,
                 "http://api-gateway:8080/v3/api-docs/swagger-config",
                 List.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Severity.INFO),
                 "Investigazione su http://api-gateway:8080 completata in 3,6 secondi. Nessuna vulnerabilità rilevata.");

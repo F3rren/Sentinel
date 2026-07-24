@@ -83,7 +83,7 @@ class AutoScanRunnerTest {
 
     private ScanReport fakeReport() {
         Instant now = Instant.now();
-        return new ScanReport("id", "http://localhost:9090", now, now, 10, 0, null,
+        return new ScanReport("id", "http://localhost:9090", now, now, 10, 0, 0, null,
                 List.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Severity.INFO),
                 "Investigazione su http://localhost:9090 completata. Nessuna vulnerabilità rilevata.");
     }

@@ -10,6 +10,7 @@ public record ScanReport(
         Instant finishedAt,
         long durationMillis,
         int endpointsDiscovered,
+        int endpointsTested,
         String openApiSpecUrl,
         List<Finding> findings,
         ScanSummary summary,

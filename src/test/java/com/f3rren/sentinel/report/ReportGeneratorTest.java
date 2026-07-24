@@ -22,7 +22,7 @@ class ReportGeneratorTest {
         Instant end = Instant.parse("2026-01-01T10:00:00.500Z");
 
         ScanReport report = reportGenerator.buildReport(
-                "scan-1", "http://localhost:8080", start, end, 3, null, List.of());
+                "scan-1", "http://localhost:8080", start, end, 3, 3, null, List.of());
 
         assertThat(report.summary().totalFindings()).isEqualTo(0);
         assertThat(report.summary().overallRisk()).isEqualTo(Severity.INFO);
@@ -32,7 +32,24 @@ class ReportGeneratorTest {
                 .contains("500 ms")
                 .contains("scansione della pagina HTML")
                 .contains("3")
-                .contains("Nessuna vulnerabilità rilevata.");
+                .contains("Nessuna vulnerabilità rilevata.")
+                // all 3 discovered were also tested: no extra "tested" clause expected.
+                .doesNotContain("Testati effettivamente");
+    }
+
+    @Test
+    void mentionsTestedCountInNarrativeWhenLowerThanDiscovered() {
+        Instant start = Instant.parse("2026-01-01T10:00:00Z");
+        Instant end = Instant.parse("2026-01-01T10:00:00.500Z");
+
+        ScanReport report = reportGenerator.buildReport(
+                "scan-4", "http://api-gateway:8080", start, end, 46, 12, null, List.of());
+
+        assertThat(report.endpointsDiscovered()).isEqualTo(46);
+        assertThat(report.endpointsTested()).isEqualTo(12);
+        assertThat(report.narrative())
+                .contains("46")
+                .contains("Testati effettivamente 12");
     }
 
     @Test
@@ -41,7 +58,7 @@ class ReportGeneratorTest {
         Instant end = Instant.parse("2026-01-01T10:00:08.100Z");
 
         ScanReport report = reportGenerator.buildReport(
-                "scan-2", "http://api-gateway:8080", start, end, 46,
+                "scan-2", "http://api-gateway:8080", start, end, 46, 46,
                 "http://api-gateway:8080/v3/api-docs/swagger-config", List.of());
 
         assertThat(report.narrative())
@@ -62,7 +79,7 @@ class ReportGeneratorTest {
         );
 
         ScanReport report = reportGenerator.buildReport(
-                "scan-3", "http://localhost:8080", start, end, 5, null, findings);
+                "scan-3", "http://localhost:8080", start, end, 5, 5, null, findings);
 
         assertThat(report.summary().totalFindings()).isEqualTo(3);
         assertThat(report.summary().overallRisk()).isEqualTo(Severity.CRITICAL);

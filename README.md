@@ -60,6 +60,7 @@ Risposta (esempio):
   "id": "…",
   "targetUrl": "http://localhost:9090",
   "endpointsDiscovered": 3,
+  "endpointsTested": 3,
   "openApiSpecUrl": null,
   "findings": [ { "type": "SQL_INJECTION_ERROR_BASED", "severity": "CRITICAL", "...": "..." } ],
   "summary": { "totalFindings": 1, "overallRisk": "CRITICAL", "countsBySeverity": { "...": 0 } },
@@ -84,6 +85,7 @@ Proprietà in `src/main/resources/application.properties` (sovrascrivibili anche
 | `sentinel.scan.request-timeout-ms` | `8000` | Timeout per singola richiesta HTTP |
 | `sentinel.scan.connect-timeout-ms` | `5000` | Timeout di connessione |
 | `sentinel.scan.max-endpoints` | `25` | Numero massimo di endpoint testati per scansione |
+| `sentinel.scan.allowed-http-methods` | `GET,POST,PUT,PATCH,DELETE` | Solo gli endpoint con questi metodi vengono attaccati (la discovery li trova comunque tutti). Es. `GET` per garantire una scansione che non tocca mai nulla in scrittura |
 | `sentinel.scan.auto-target-url` | _(vuoto)_ | Se impostata, scansione automatica all'avvio su questo URL, zero comandi manuali |
 | `sentinel.scan.auto-scan-max-attempts` | `20` | Tentativi di raggiungibilità del target prima di rinunciare all'auto-scan |
 | `sentinel.scan.auto-scan-retry-delay-ms` | `3000` | Attesa tra un tentativo e l'altro |

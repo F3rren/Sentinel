@@ -14,14 +14,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -37,11 +40,15 @@ public class ScanService {
 
     private static final Logger log = LoggerFactory.getLogger(ScanService.class);
 
+    private static final Set<HttpMethod> DEFAULT_ALLOWED_METHODS =
+            Set.of(HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH, HttpMethod.DELETE);
+
     private final OpenApiDiscoveryService openApiDiscoveryService;
     private final EndpointDiscoveryService discoveryService;
     private final List<AttackModule> attackModules;
     private final ReportGenerator reportGenerator;
     private final int maxEndpoints;
+    private final Set<HttpMethod> allowedHttpMethods;
     private final Map<String, ScanReport> reports = new ConcurrentHashMap<>();
     private final AtomicReference<String> latestReportId = new AtomicReference<>();
 
@@ -53,13 +60,46 @@ public class ScanService {
             // whole app the moment someone disables the only module that happens to exist.
             @Autowired(required = false) List<AttackModule> attackModules,
             ReportGenerator reportGenerator,
-            @Value("${sentinel.scan.max-endpoints:25}") int maxEndpoints
+            @Value("${sentinel.scan.max-endpoints:25}") int maxEndpoints,
+            @Value("${sentinel.scan.allowed-http-methods:GET,POST,PUT,PATCH,DELETE}") String allowedHttpMethodsRaw
     ) {
         this.openApiDiscoveryService = openApiDiscoveryService;
         this.discoveryService = discoveryService;
         this.attackModules = attackModules != null ? attackModules : List.of();
         this.reportGenerator = reportGenerator;
         this.maxEndpoints = maxEndpoints;
+        this.allowedHttpMethods = parseAllowedMethods(allowedHttpMethodsRaw);
+    }
+
+    // HttpMethod is no longer a plain enum in Spring 7: HttpMethod.valueOf(String) happily
+    // builds a custom instance for any string instead of throwing on an unknown one (it exists
+    // to support non-standard verbs), so validation has to check against a known whitelist
+    // ourselves rather than relying on an exception that will never come.
+    private static final Set<String> KNOWN_METHOD_NAMES =
+            Set.of("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE");
+
+    private Set<HttpMethod> parseAllowedMethods(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return DEFAULT_ALLOWED_METHODS;
+        }
+        Set<HttpMethod> methods = new HashSet<>();
+        for (String token : raw.split(",")) {
+            String candidate = token.trim().toUpperCase();
+            if (candidate.isEmpty()) {
+                continue;
+            }
+            if (!KNOWN_METHOD_NAMES.contains(candidate)) {
+                log.warn("Ignoro metodo HTTP sconosciuto in sentinel.scan.allowed-http-methods: '{}'", candidate);
+                continue;
+            }
+            methods.add(HttpMethod.valueOf(candidate));
+        }
+        if (methods.isEmpty()) {
+            log.warn("sentinel.scan.allowed-http-methods='{}' non contiene alcun metodo valido: uso il default ({}).",
+                    raw, DEFAULT_ALLOWED_METHODS);
+            return DEFAULT_ALLOWED_METHODS;
+        }
+        return methods;
     }
 
     public ScanReport runScan(String rawTargetUrl) {
@@ -81,9 +121,15 @@ public class ScanService {
         }
         String openApiSpecUrl = openApi.map(OpenApiDiscoveryResult::specUrl).orElse(null);
 
-        List<Endpoint> endpointsToScan = endpoints.size() > maxEndpoints
-                ? endpoints.subList(0, maxEndpoints)
-                : endpoints;
+        // Filter by allowed HTTP method before capping to maxEndpoints, so the cap is spent
+        // entirely on endpoints that will actually be attacked instead of being wasted on ones
+        // the method filter would have excluded anyway.
+        List<Endpoint> methodFiltered = endpoints.stream()
+                .filter(endpoint -> allowedHttpMethods.contains(endpoint.method()))
+                .toList();
+        List<Endpoint> endpointsToScan = methodFiltered.size() > maxEndpoints
+                ? methodFiltered.subList(0, maxEndpoints)
+                : methodFiltered;
 
         List<Finding> findings = new ArrayList<>();
         for (Endpoint endpoint : endpointsToScan) {
@@ -98,7 +144,8 @@ public class ScanService {
 
         Instant finishedAt = Instant.now();
         String id = UUID.randomUUID().toString();
-        ScanReport report = reportGenerator.buildReport(id, targetUrl, startedAt, finishedAt, endpoints.size(), openApiSpecUrl, findings);
+        ScanReport report = reportGenerator.buildReport(id, targetUrl, startedAt, finishedAt,
+                endpoints.size(), endpointsToScan.size(), openApiSpecUrl, findings);
         reports.put(id, report);
         latestReportId.set(id);
         return report;

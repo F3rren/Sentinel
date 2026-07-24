@@ -24,11 +24,12 @@ import java.util.stream.Collectors;
 public class ReportGenerator {
 
     public ScanReport buildReport(String id, String targetUrl, Instant startedAt, Instant finishedAt,
-                                   int endpointsDiscovered, String openApiSpecUrl, List<Finding> findings) {
+                                   int endpointsDiscovered, int endpointsTested, String openApiSpecUrl,
+                                   List<Finding> findings) {
         ScanSummary summary = summarize(findings);
         long durationMillis = Duration.between(startedAt, finishedAt).toMillis();
-        String narrative = buildNarrative(targetUrl, durationMillis, endpointsDiscovered, openApiSpecUrl, summary);
-        return new ScanReport(id, targetUrl, startedAt, finishedAt, durationMillis, endpointsDiscovered, openApiSpecUrl, findings, summary, narrative);
+        String narrative = buildNarrative(targetUrl, durationMillis, endpointsDiscovered, endpointsTested, openApiSpecUrl, summary);
+        return new ScanReport(id, targetUrl, startedAt, finishedAt, durationMillis, endpointsDiscovered, endpointsTested, openApiSpecUrl, findings, summary, narrative);
     }
 
     private ScanSummary summarize(List<Finding> findings) {
@@ -47,7 +48,7 @@ public class ReportGenerator {
     }
 
     private String buildNarrative(String targetUrl, long durationMillis, int endpointsDiscovered,
-                                   String openApiSpecUrl, ScanSummary summary) {
+                                   int endpointsTested, String openApiSpecUrl, ScanSummary summary) {
         StringBuilder narrative = new StringBuilder();
         narrative.append("Investigazione su ").append(targetUrl)
                 .append(" completata in ").append(formatDuration(durationMillis)).append(". ");
@@ -58,6 +59,11 @@ public class ReportGenerator {
         } else {
             narrative.append("Endpoint individuati tramite scansione della pagina HTML del target: ")
                     .append(endpointsDiscovered).append(". ");
+        }
+
+        if (endpointsTested < endpointsDiscovered) {
+            narrative.append("Testati effettivamente ").append(endpointsTested)
+                    .append(" (filtro sui metodi HTTP e/o limite massimo endpoint configurati). ");
         }
 
         if (summary.totalFindings() == 0) {
