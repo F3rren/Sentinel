@@ -1,53 +1,53 @@
 # Sentinel
 
-Sentinel è uno strumento di **automated security testing**: dato l'indirizzo di un'applicazione (es. `localhost:8080`), scopre gli endpoint esposti e lancia attacchi automatici per individuare vulnerabilità, restituendo un report con gravità e raccomandazioni di remediation.
+Sentinel is an **automated security testing** tool: given an application's address (e.g. `localhost:8080`), it discovers the exposed endpoints and launches automated attacks to find vulnerabilities, returning a report with severity and remediation guidance.
 
-> **Uso previsto**: solo su applicazioni di cui hai l'autorizzazione a testare la sicurezza (i tuoi progetti, ambienti di staging, target di un pentest autorizzato). Non puntarlo su sistemi di terzi senza consenso esplicito.
+> **Intended use**: only against applications you are authorized to security-test (your own projects, staging environments, an authorized pentest target). Do not point it at third-party systems without explicit consent.
 
-## Cosa fa oggi
+## What it does today
 
-1. **Discovery degli endpoint**, in due fasi:
-   - **OpenAPI/Swagger** (fase preferita): prova a leggere una spec su `/v3/api-docs`, `/v2/api-docs`, `/swagger.json`, `/openapi.json`, ecc. Se il target è un API gateway che aggrega più servizi (springdoc `swagger-config` o springfox `swagger-resources`), segue l'aggregazione e recupera le spec di tutti i servizi a valle. Quando un'operazione documenta un `requestBody` JSON (tipico di POST/PUT/PATCH), ne genera anche un body di esempio type-aware (risolvendo i `$ref` verso `components/schemas`: interi come numeri, booleani come booleani, stringhe con formato coerente), così l'endpoint riceve una richiesta che può effettivamente elaborare invece di respingerla subito con 415/400 per un body mancante o nel formato sbagliato.
-   - **Crawling HTML**: se non trova una spec (o in aggiunta ad essa), analizza la pagina del target per link con query string e form, e li unisce (senza duplicati) agli endpoint trovati via Swagger.
-2. **Attacco**, due moduli:
-   - **SQL Injection**: sia error-based (fingerprint dei messaggi di errore di MySQL/MariaDB, PostgreSQL, MSSQL, Oracle, SQLite, JDBC/Hibernate) sia boolean-based/blind (euristica su condizioni vero/falso iniettate).
-   - **Missing Authentication**: segnala gli endpoint che rispondono con successo (2xx) a una richiesta priva di qualunque credenziale (Sentinel non invia mai header di autenticazione). Una risposta 401/403 è considerata prova che l'autenticazione è applicata (nessun finding); qualunque altro status (400/404/5xx) è inconclusivo e viene ignorato. Grazie al body JSON generato dallo schema OpenAPI, questo vale ora anche per endpoint POST/PUT/PATCH che richiedono un body — prima restituivano quasi sempre 415 (inconclusivo), ora possono ricevere una risposta reale. È volutamente più limitato di un vero test IDOR/BOLA (che richiederebbe due identità autenticate distinte da confrontare, concetto che Sentinel non ha ancora): risponde solo alla domanda "questo endpoint richiede autenticazione?".
-3. **Report**: JSON con ogni finding (endpoint, parametro, payload, evidenza, raccomandazione, severità), un riepilogo per severità **e per tipologia di problema**, un punteggio di rischio numerico oltre alla valutazione qualitativa, e un campo `narrative` con un riassunto testuale in italiano.
+1. **Endpoint discovery**, in two phases:
+   - **OpenAPI/Swagger** (preferred phase): tries to read a spec at `/v3/api-docs`, `/v2/api-docs`, `/swagger.json`, `/openapi.json`, etc. If the target is an API gateway aggregating multiple services (springdoc `swagger-config` or springfox `swagger-resources`), it follows the aggregation and fetches every downstream service's spec. When an operation documents a JSON `requestBody` (typical of POST/PUT/PATCH), it also generates a type-aware sample body (resolving `$ref`s against `components/schemas`: integers as numbers, booleans as booleans, strings with a consistent format), so the endpoint receives a request it can actually process instead of immediately rejecting it with 415/400 for a missing or wrongly-shaped body. Required properties are always populated; optional ones are populated too unless they carry a `pattern` constraint or are an array/object - values a generic sample can't safely guess without risking a validation failure that an absent field would otherwise skip. Fields with no format/enum/pattern constraint get a random, clearly-synthetic `sentinel-<token>` value rather than a plain word like "test" - easy to tell apart from real user data and to grep for in the target's logs/database afterward.
+   - **HTML crawling**: if no spec is found (or in addition to it), it parses the target's page for links with a query string and forms, merging them (deduplicated) with whatever Swagger already found.
+2. **Attack**, two modules:
+   - **SQL Injection**: both error-based (fingerprinting MySQL/MariaDB, PostgreSQL, MSSQL, Oracle, SQLite, and JDBC/Hibernate error messages) and boolean-based/blind (heuristic on injected true/false conditions). A response throttled by the target's own rate limiting (HTTP 429) on either side of the true/false comparison is treated as inconclusive rather than a signal, since it reflects Sentinel's own request volume, not the application's query logic.
+   - **Missing Authentication**: flags endpoints that respond successfully (2xx) to a request carrying no credentials at all (Sentinel never sends an authentication header). A 401/403 response is treated as proof that authentication is enforced (no finding); any other status (400/404/5xx) is inconclusive and ignored. Thanks to the JSON body generated from the OpenAPI schema, this now also works for POST/PUT/PATCH endpoints that require a body - previously they almost always returned 415 (inconclusive), now they can receive a real response. This is deliberately narrower than a true IDOR/BOLA test (which would need two distinct authenticated identities to compare - a concept Sentinel doesn't have yet): it only answers "does this endpoint require authentication at all?".
+3. **Report**: JSON with every finding (endpoint, parameter, payload, evidence, recommendation, severity), a summary broken down **by severity and by issue type**, a numeric risk score alongside the qualitative rating, and a `narrative` field with a human-readable summary (in Italian).
 
-Moduli pianificati per iterazioni successive: XSS, IDOR/BOLA con identità multiple, brute force sugli endpoint di autenticazione.
+Modules planned for future iterations: XSS, IDOR/BOLA with multiple identities, brute force against authentication endpoints.
 
-## Avvio rapido
+## Quick start
 
-### Da sorgente
+### From source
 
 ```bash
 ./mvnw spring-boot:run
 ```
 
-L'app parte su `http://localhost:8080`.
+The app starts on `http://localhost:8080`.
 
-### Con Docker, contro un'app "vittima" già in esecuzione
+### With Docker, against an already-running "victim" app
 
-Se la vittima gira già tramite un suo `docker-compose`, Sentinel può agganciarsi alla stessa rete Docker per raggiungerla via nome del container invece che `localhost`:
+If the victim already runs via its own `docker-compose`, Sentinel can join the same Docker network to reach it by container name instead of `localhost`:
 
 ```bash
 cp .env.example .env
-# apri .env e imposta VICTIM_NETWORK_NAME con il nome reale della rete della vittima
-# (si trova con: docker network ls)
+# open .env and set VICTIM_NETWORK_NAME to the victim's real network name
+# (find it with: docker network ls)
 docker compose up -d --build
 ```
 
-Sentinel sarà raggiungibile su `http://localhost:8088`. Dettagli e troubleshooting sono nei commenti di `docker-compose.yml` e `.env.example`.
+Sentinel will be reachable at `http://localhost:8088`. Details and troubleshooting are in the comments of `docker-compose.yml` and `.env.example`.
 
-**Scansione completamente automatica (zero comandi manuali)**: se in `.env` valorizzi anche `SENTINEL_SCAN_AUTO_TARGET_URL` con l'URL della vittima (es. `http://api-gateway:8080`), Sentinel attende da solo che il target risponda e lancia la scansione all'avvio del container, senza bisogno di alcuna richiesta manuale. Il risultato è consultabile in qualsiasi momento con:
+**Fully automatic scan (zero manual commands)**: if you also set `SENTINEL_SCAN_AUTO_TARGET_URL` in `.env` to the victim's URL (e.g. `http://api-gateway:8080`), Sentinel waits on its own for the target to respond and launches the scan on container startup, with no manual request needed. The result can be checked at any time with:
 
 ```bash
 curl http://localhost:8088/api/scans/latest
 ```
 
-## Uso dell'API
+## Using the API
 
-**Avviare una scansione**
+**Start a scan**
 
 ```bash
 curl -X POST http://localhost:8080/api/scans \
@@ -55,7 +55,7 @@ curl -X POST http://localhost:8080/api/scans \
   -d '{"targetUrl": "http://localhost:9090"}'
 ```
 
-Risposta (esempio):
+Response (example):
 
 ```json
 {
@@ -76,49 +76,49 @@ Risposta (esempio):
 }
 ```
 
-**Recuperare un report già generato**
+**Retrieve a previously generated report**
 
 ```bash
 curl http://localhost:8080/api/scans/{id}
-curl http://localhost:8080/api/scans/latest   # l'ultimo eseguito, manuale o automatico
+curl http://localhost:8080/api/scans/latest   # the most recent one, manual or automatic
 ```
 
-**Su file**: ogni scansione completata viene anche salvata come JSON in `reports/` (dentro il progetto, configurabile con `sentinel.scan.reports-directory`), con nome `<timestamp>-<host>-<scanId>.json` — utile per conservare, confrontare o versionare i risultati senza dover interrogare l'API. Con Docker la cartella è montata su `./reports` nell'host (vedi `docker-compose.yml`), quindi i file restano anche dopo `docker compose down`.
+**On file**: every completed scan is also saved as JSON in `reports/` (inside the project, configurable via `sentinel.scan.reports-directory`), named `<timestamp>-<host>-<scanId>.json` - useful for keeping, comparing, or versioning results without querying the API. With Docker, the folder is mounted to `./reports` on the host (see `docker-compose.yml`), so the files survive `docker compose down`.
 
-## Configurazione
+## Configuration
 
-Proprietà in `src/main/resources/application.properties` (sovrascrivibili anche da variabile d'ambiente, es. `SENTINEL_SCAN_MAX_ENDPOINTS`):
+Properties in `src/main/resources/application.properties` (overridable via environment variable too, e.g. `SENTINEL_SCAN_MAX_ENDPOINTS`):
 
-| Proprietà | Default | Descrizione |
+| Property | Default | Description |
 |---|---|---|
-| `sentinel.scan.user-agent` | `Sentinel-Scanner/0.1 (+authorized-security-testing)` | User-Agent usato in ogni richiesta verso il target |
-| `sentinel.scan.request-timeout-ms` | `8000` | Timeout per singola richiesta HTTP |
-| `sentinel.scan.connect-timeout-ms` | `5000` | Timeout di connessione |
-| `sentinel.scan.max-endpoints` | `25` | Numero massimo di endpoint testati per scansione |
-| `sentinel.scan.reports-directory` | `reports` | Cartella dove ogni report viene salvato anche come file JSON. Vuoto per disabilitare il salvataggio su file |
-| `sentinel.scan.allowed-http-methods` | `GET,POST,PUT,PATCH,DELETE` | Solo gli endpoint con questi metodi vengono attaccati (la discovery li trova comunque tutti). Es. `GET` per garantire una scansione che non tocca mai nulla in scrittura |
-| `sentinel.scan.auto-target-url` | _(vuoto)_ | Se impostata, scansione automatica all'avvio su questo URL, zero comandi manuali |
-| `sentinel.scan.auto-scan-max-attempts` | `20` | Tentativi di raggiungibilità del target prima di rinunciare all'auto-scan |
-| `sentinel.scan.auto-scan-retry-delay-ms` | `3000` | Attesa tra un tentativo e l'altro |
-| `sentinel.scan.sql-injection.enabled` | `true` | Abilita/disabilita il modulo SQL injection. A `false` il modulo non viene nemmeno istanziato |
-| `sentinel.scan.missing-authentication.enabled` | `true` | Abilita/disabilita il modulo Missing Authentication |
+| `sentinel.scan.user-agent` | `Sentinel-Scanner/0.1 (+authorized-security-testing)` | User-Agent used on every request to the target |
+| `sentinel.scan.request-timeout-ms` | `8000` | Timeout for a single HTTP request |
+| `sentinel.scan.connect-timeout-ms` | `5000` | Connection timeout |
+| `sentinel.scan.max-endpoints` | `25` | Maximum number of endpoints attacked per scan |
+| `sentinel.scan.reports-directory` | `reports` | Folder where every report is also saved as a JSON file. Empty to disable file persistence |
+| `sentinel.scan.allowed-http-methods` | `GET,POST,PUT,PATCH,DELETE` | Only endpoints with these methods get attacked (discovery still finds all of them). E.g. `GET` to guarantee a scan that never touches anything in writing |
+| `sentinel.scan.auto-target-url` | _(empty)_ | If set, an automatic scan runs against this URL on startup, zero manual commands |
+| `sentinel.scan.auto-scan-max-attempts` | `20` | Reachability attempts against the target before giving up on the auto-scan |
+| `sentinel.scan.auto-scan-retry-delay-ms` | `3000` | Wait between one attempt and the next |
+| `sentinel.scan.sql-injection.enabled` | `true` | Enables/disables the SQL injection module. When `false`, the module isn't even instantiated |
+| `sentinel.scan.missing-authentication.enabled` | `true` | Enables/disables the Missing Authentication module |
 
-Ogni modulo di attacco futuro (XSS, IDOR/BOLA, brute force, ...) seguirà la stessa convenzione `sentinel.scan.<modulo>.enabled`.
+Every future attack module (XSS, IDOR/BOLA, brute force, ...) will follow the same `sentinel.scan.<module>.enabled` convention.
 
-## Metrica di rischio
+## Risk metric
 
-Oltre alla lista dei finding, `summary` risponde a tre domande diverse:
+Besides the list of findings, `summary` answers three different questions:
 
-- **`countsBySeverity` / `overallRisk`** — quanto è grave il problema peggiore trovato (INFO → CRITICAL).
-- **`countsByType`** — quanti problemi per ciascuna tipologia (`SQL_INJECTION_ERROR_BASED`, `SQL_INJECTION_BOOLEAN_BASED`, `MISSING_AUTHENTICATION`, ...), utile quando i moduli attivi sono più di uno e si vuole capire su cosa concentrarsi.
-- **`riskScore`** — punteggio numerico (somma pesata: CRITICAL=40, HIGH=20, MEDIUM=8, LOW=3, INFO=0) che distingue il *volume* dei problemi a parità di `overallRisk`: 1 CRITICAL e 20 CRITICAL hanno lo stesso `overallRisk`, ma punteggio molto diverso. È una euristica pensata per confrontare scansioni successive dello stesso target, non un CVSS o un punteggio "ufficiale".
+- **`countsBySeverity` / `overallRisk`** - how bad is the worst problem found (INFO → CRITICAL).
+- **`countsByType`** - how many problems for each issue type (`SQL_INJECTION_ERROR_BASED`, `SQL_INJECTION_BOOLEAN_BASED`, `MISSING_AUTHENTICATION`, ...), useful once more than one module is active and you want to know what to focus on.
+- **`riskScore`** - a numeric score (weighted sum: CRITICAL=40, HIGH=20, MEDIUM=8, LOW=3, INFO=0) that distinguishes the *volume* of problems at equal `overallRisk`: 1 CRITICAL and 20 CRITICAL share the same `overallRisk`, but a very different score. It's a heuristic meant for comparing successive scans of the same target, not a CVSS or an "official" score.
 
-## Sviluppo
+## Development
 
 ```bash
-./mvnw test   # esegue l'intera suite
+./mvnw test   # runs the whole suite
 ```
 
 ## Stack
 
-Java 17, Spring Boot, Jsoup (parsing HTML), Jackson (parsing OpenAPI). Le scansioni sono sincrone e i report sono tenuti in memoria (nessuna persistenza al momento).
+Java 17, Spring Boot, Jsoup (HTML parsing), Jackson (OpenAPI parsing). Scans run synchronously; reports are kept in memory for retrieval by id during the app's lifetime, and are also persisted as JSON files under `reports/` (see [Using the API](#using-the-api)).
