@@ -15,6 +15,8 @@ import tools.jackson.databind.node.ObjectNode;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -270,8 +272,8 @@ public class OpenApiDiscoveryService {
             case "boolean" -> "true";
             case "string" -> switch (format) {
                 case "uuid" -> "00000000-0000-0000-0000-000000000001";
-                case "date" -> "2024-01-01";
-                case "date-time" -> "2024-01-01T00:00:00Z";
+                case "date" -> LocalDate.now().toString();
+                case "date-time" -> Instant.now().toString();
                 case "email" -> "test@example.com";
                 default -> "test";
             };

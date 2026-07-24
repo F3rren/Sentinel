@@ -11,6 +11,8 @@ import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -137,6 +139,38 @@ class OpenApiDiscoveryServiceTest {
                   "AquariumType": {
                     "type": "string",
                     "enum": ["FRESHWATER", "SALTWATER"]
+                  }
+                }
+              }
+            }
+            """;
+
+    private static final String SPEC_WITH_DATE_FIELDS = """
+            {
+              "openapi": "3.0.1",
+              "paths": {
+                "/products": {
+                  "post": {
+                    "requestBody": {
+                      "content": {
+                        "application/json": {
+                          "schema": { "$ref": "#/components/schemas/CreateProductDTO" }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "components": {
+                "schemas": {
+                  "CreateProductDTO": {
+                    "required": ["name"],
+                    "type": "object",
+                    "properties": {
+                      "name": {"type": "string"},
+                      "purchaseDate": {"type": "string", "format": "date"},
+                      "recordedAt": {"type": "string", "format": "date-time"}
+                    }
                   }
                 }
               }
@@ -307,6 +341,31 @@ class OpenApiDiscoveryServiceTest {
 
         Endpoint noBody = find(endpoints, HttpMethod.POST, "http://localhost:8080/no-body");
         assertThat(noBody.requestBodySample()).isNull();
+    }
+
+    @Test
+    void generatesCurrentDateAndDateTimeValuesInsteadOfAStaleFixedLiteral() throws Exception {
+        when(httpClient.get(anyString())).thenAnswer(invocation -> {
+            String url = invocation.getArgument(0);
+            if (url.endsWith("/v3/api-docs")) {
+                return new HttpResponseData(200, SPEC_WITH_DATE_FIELDS, 5);
+            }
+            return new HttpResponseData(404, "", 5);
+        });
+
+        OpenApiDiscoveryService service = new OpenApiDiscoveryService(httpClient);
+        Optional<OpenApiDiscoveryResult> result = service.discover("http://localhost:8080");
+
+        assertThat(result).isPresent();
+        Endpoint createProduct = find(result.get().endpoints(), HttpMethod.POST, "http://localhost:8080/products");
+        JsonNode body = new ObjectMapper().readTree(createProduct.requestBodySample());
+
+        // A hardcoded past literal (e.g. "2024-01-01") only gets staler as real time passes and
+        // is guaranteed to eventually violate any "not in the past" / recency validation. "Now"
+        // has no such expiry.
+        assertThat(LocalDate.parse(body.path("purchaseDate").asText())).isEqualTo(LocalDate.now());
+        assertThat(Instant.parse(body.path("recordedAt").asText()))
+                .isCloseTo(Instant.now(), org.assertj.core.api.Assertions.within(java.time.Duration.ofMinutes(1)));
     }
 
     @Test
