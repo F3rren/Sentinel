@@ -9,6 +9,9 @@ target/
 .env.*
 !.env.example
 
+### Scan reports (generated output, not source) ###
+/reports/
+
 ### STS ###
 .apt_generated
 .classpath

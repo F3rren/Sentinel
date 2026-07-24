@@ -83,6 +83,8 @@ curl http://localhost:8080/api/scans/{id}
 curl http://localhost:8080/api/scans/latest   # l'ultimo eseguito, manuale o automatico
 ```
 
+**Su file**: ogni scansione completata viene anche salvata come JSON in `reports/` (dentro il progetto, configurabile con `sentinel.scan.reports-directory`), con nome `<timestamp>-<host>-<scanId>.json` — utile per conservare, confrontare o versionare i risultati senza dover interrogare l'API. Con Docker la cartella è montata su `./reports` nell'host (vedi `docker-compose.yml`), quindi i file restano anche dopo `docker compose down`.
+
 ## Configurazione
 
 Proprietà in `src/main/resources/application.properties` (sovrascrivibili anche da variabile d'ambiente, es. `SENTINEL_SCAN_MAX_ENDPOINTS`):
@@ -93,6 +95,7 @@ Proprietà in `src/main/resources/application.properties` (sovrascrivibili anche
 | `sentinel.scan.request-timeout-ms` | `8000` | Timeout per singola richiesta HTTP |
 | `sentinel.scan.connect-timeout-ms` | `5000` | Timeout di connessione |
 | `sentinel.scan.max-endpoints` | `25` | Numero massimo di endpoint testati per scansione |
+| `sentinel.scan.reports-directory` | `reports` | Cartella dove ogni report viene salvato anche come file JSON. Vuoto per disabilitare il salvataggio su file |
 | `sentinel.scan.allowed-http-methods` | `GET,POST,PUT,PATCH,DELETE` | Solo gli endpoint con questi metodi vengono attaccati (la discovery li trova comunque tutti). Es. `GET` per garantire una scansione che non tocca mai nulla in scrittura |
 | `sentinel.scan.auto-target-url` | _(vuoto)_ | Se impostata, scansione automatica all'avvio su questo URL, zero comandi manuali |
 | `sentinel.scan.auto-scan-max-attempts` | `20` | Tentativi di raggiungibilità del target prima di rinunciare all'auto-scan |

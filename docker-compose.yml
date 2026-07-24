@@ -20,6 +20,9 @@
 #
 # Without SENTINEL_SCAN_AUTO_TARGET_URL, trigger scans by hand instead:
 #   POST http://localhost:8088/api/scans  {"targetUrl": "http://<victim-entrypoint>:<port>"}
+#
+# Every scan is also saved as a JSON file under ./reports on your host (bind-mounted below),
+# so results survive `docker compose down` and can be reviewed without hitting the API.
 
 services:
   sentinel:
@@ -33,6 +36,8 @@ services:
       SENTINEL_SCAN_SQL_INJECTION_ENABLED: ${SENTINEL_SCAN_SQL_INJECTION_ENABLED:-true}
       SENTINEL_SCAN_MISSING_AUTHENTICATION_ENABLED: ${SENTINEL_SCAN_MISSING_AUTHENTICATION_ENABLED:-true}
       SENTINEL_SCAN_ALLOWED_HTTP_METHODS: ${SENTINEL_SCAN_ALLOWED_HTTP_METHODS:-GET,POST,PUT,PATCH,DELETE}
+    volumes:
+      - ./reports:/app/reports
     networks:
       - victim-network
 

@@ -7,6 +7,7 @@ import com.f3rren.sentinel.discovery.openapi.OpenApiDiscoveryService;
 import com.f3rren.sentinel.model.Endpoint;
 import com.f3rren.sentinel.model.Finding;
 import com.f3rren.sentinel.model.ScanReport;
+import com.f3rren.sentinel.report.ReportFileWriter;
 import com.f3rren.sentinel.report.ReportGenerator;
 import com.f3rren.sentinel.web.exception.InvalidTargetException;
 import com.f3rren.sentinel.web.exception.ScanNotFoundException;
@@ -47,6 +48,7 @@ public class ScanService {
     private final EndpointDiscoveryService discoveryService;
     private final List<AttackModule> attackModules;
     private final ReportGenerator reportGenerator;
+    private final ReportFileWriter reportFileWriter;
     private final int maxEndpoints;
     private final Set<HttpMethod> allowedHttpMethods;
     private final Map<String, ScanReport> reports = new ConcurrentHashMap<>();
@@ -60,6 +62,7 @@ public class ScanService {
             // whole app the moment someone disables the only module that happens to exist.
             @Autowired(required = false) List<AttackModule> attackModules,
             ReportGenerator reportGenerator,
+            ReportFileWriter reportFileWriter,
             @Value("${sentinel.scan.max-endpoints:25}") int maxEndpoints,
             @Value("${sentinel.scan.allowed-http-methods:GET,POST,PUT,PATCH,DELETE}") String allowedHttpMethodsRaw
     ) {
@@ -67,6 +70,7 @@ public class ScanService {
         this.discoveryService = discoveryService;
         this.attackModules = attackModules != null ? attackModules : List.of();
         this.reportGenerator = reportGenerator;
+        this.reportFileWriter = reportFileWriter;
         this.maxEndpoints = maxEndpoints;
         this.allowedHttpMethods = parseAllowedMethods(allowedHttpMethodsRaw);
     }
@@ -148,6 +152,7 @@ public class ScanService {
                 endpoints.size(), endpointsToScan.size(), openApiSpecUrl, findings);
         reports.put(id, report);
         latestReportId.set(id);
+        reportFileWriter.write(report);
         return report;
     }
 
