@@ -144,6 +144,14 @@ public class SqlInjectionScanner implements AttackModule {
         HttpResponseData trueResponse = httpClient.exchange(endpoint.method(), endpoint.url(), trueParams);
         HttpResponseData falseResponse = httpClient.exchange(endpoint.method(), endpoint.url(), falseParams);
 
+        if (trueResponse.statusCode() == 429 || falseResponse.statusCode() == 429) {
+            // A 429 means the target's rate limiter reacted to Sentinel's own request volume
+            // (this same param already took a baseline + up to 8 error-based payloads before
+            // either of these two), not to the injected condition's truth value. Comparing
+            // against a throttled response would read pure throttling as a signal.
+            return Optional.empty();
+        }
+
         int baseLen = baseline.bodyOrEmpty().length();
         int trueLen = trueResponse.bodyOrEmpty().length();
         int falseLen = falseResponse.bodyOrEmpty().length();

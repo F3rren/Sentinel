@@ -38,6 +38,7 @@ class SqlInjectionScannerTest {
         server.createContext("/vulnerable", this::errorBasedHandler);
         server.createContext("/blind", this::booleanBasedHandler);
         server.createContext("/safe", this::safeHandler);
+        server.createContext("/rate-limited", this::rateLimitedHandler);
         server.start();
         baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
 
@@ -76,6 +77,20 @@ class SqlInjectionScannerTest {
     }
 
     @Test
+    void doesNotFlagBooleanBasedSqliWhenTheFalseConditionIsRateLimited() {
+        // Reproduces a real false positive: baseline and the true-condition payload both get
+        // 200, but by the time the false-condition payload is sent (the 11th request to this
+        // same endpoint+param - baseline, 8 error-based payloads, then the true payload), a
+        // rate limiter kicks in and returns 429. The differing status/body used to read as a
+        // SQLi signal even though it's purely a byproduct of Sentinel's own request volume.
+        Endpoint endpoint = new Endpoint(baseUrl + "/rate-limited", HttpMethod.GET, List.of(new EndpointParam("id", "1")));
+
+        List<Finding> findings = scanner.scan(endpoint);
+
+        assertThat(findings).isEmpty();
+    }
+
+    @Test
     void reportsNoFindingsForSafeEndpoint() {
         Endpoint endpoint = new Endpoint(baseUrl + "/safe", HttpMethod.GET, List.of(new EndpointParam("id", "1")));
 
@@ -105,6 +120,12 @@ class SqlInjectionScannerTest {
 
     private void safeHandler(HttpExchange exchange) throws IOException {
         writeResponse(exchange, 200, "<html><body>Nothing interesting here.</body></html>");
+    }
+
+    private void rateLimitedHandler(HttpExchange exchange) throws IOException {
+        String id = queryParam(exchange, "id");
+        boolean falseCondition = "' AND '1'='2' -- ".equals(id);
+        writeResponse(exchange, falseCondition ? 429 : 200, "<html><body>OK</body></html>");
     }
 
     private String queryParam(HttpExchange exchange, String name) {
