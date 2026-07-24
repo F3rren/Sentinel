@@ -1,7 +1,7 @@
-package com.f3rren.sentinel.attack.sqli;
+package com.f3rren.sentinel.attack.authn;
 
 import com.f3rren.sentinel.SentinelApplication;
-import com.f3rren.sentinel.attack.authn.MissingAuthenticationScanner;
+import com.f3rren.sentinel.attack.sqli.SqlInjectionScanner;
 import com.f3rren.sentinel.scan.ScanService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,13 +12,12 @@ import org.springframework.test.context.TestPropertySource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * sentinel.scan.sql-injection.enabled=false must keep the bean from being created at all, and
- * must not affect other modules - only SqlInjectionScanner should be absent, everything else
- * (MissingAuthenticationScanner) keeps running.
+ * Mirrors SqlInjectionScannerDisabledTest for the other module: disabling
+ * missing-authentication must not affect sql-injection.
  */
 @SpringBootTest(classes = SentinelApplication.class, webEnvironment = SpringBootTest.WebEnvironment.NONE)
-@TestPropertySource(properties = "sentinel.scan.sql-injection.enabled=false")
-class SqlInjectionScannerDisabledTest {
+@TestPropertySource(properties = "sentinel.scan.missing-authentication.enabled=false")
+class MissingAuthenticationScannerDisabledTest {
 
     @Autowired
     private ApplicationContext applicationContext;
@@ -28,8 +27,8 @@ class SqlInjectionScannerDisabledTest {
 
     @Test
     void onlyThisModuleIsNotRegisteredWhenDisabled() {
-        assertThat(applicationContext.getBeanNamesForType(SqlInjectionScanner.class)).isEmpty();
-        assertThat(applicationContext.getBeanNamesForType(MissingAuthenticationScanner.class)).isNotEmpty();
+        assertThat(applicationContext.getBeanNamesForType(MissingAuthenticationScanner.class)).isEmpty();
+        assertThat(applicationContext.getBeanNamesForType(SqlInjectionScanner.class)).isNotEmpty();
         assertThat(scanService).isNotNull();
     }
 }

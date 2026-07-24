@@ -9,10 +9,12 @@ Sentinel è uno strumento di **automated security testing**: dato l'indirizzo di
 1. **Discovery degli endpoint**, in due fasi:
    - **OpenAPI/Swagger** (fase preferita): prova a leggere una spec su `/v3/api-docs`, `/v2/api-docs`, `/swagger.json`, `/openapi.json`, ecc. Se il target è un API gateway che aggrega più servizi (springdoc `swagger-config` o springfox `swagger-resources`), segue l'aggregazione e recupera le spec di tutti i servizi a valle.
    - **Crawling HTML**: se non trova una spec (o in aggiunta ad essa), analizza la pagina del target per link con query string e form, e li unisce (senza duplicati) agli endpoint trovati via Swagger.
-2. **Attacco**: al momento è implementato un solo modulo — **SQL Injection**, sia error-based (fingerprint dei messaggi di errore di MySQL/MariaDB, PostgreSQL, MSSQL, Oracle, SQLite, JDBC/Hibernate) sia boolean-based/blind (euristica su condizioni vero/falso iniettate).
-3. **Report**: JSON con ogni finding (endpoint, parametro, payload, evidenza, raccomandazione, severità), un riepilogo per severità con rischio complessivo, e un campo `narrative` con un riassunto testuale in italiano.
+2. **Attacco**, due moduli:
+   - **SQL Injection**: sia error-based (fingerprint dei messaggi di errore di MySQL/MariaDB, PostgreSQL, MSSQL, Oracle, SQLite, JDBC/Hibernate) sia boolean-based/blind (euristica su condizioni vero/falso iniettate).
+   - **Missing Authentication**: segnala gli endpoint che rispondono con successo (2xx) a una richiesta priva di qualunque credenziale (Sentinel non invia mai header di autenticazione). Una risposta 401/403 è considerata prova che l'autenticazione è applicata (nessun finding); qualunque altro status (400/404/415/5xx, spesso dovuto al fatto che la richiesta baseline di Sentinel non rispecchia il body atteso dall'endpoint) è inconclusivo e viene ignorato. È volutamente più limitato di un vero test IDOR/BOLA (che richiederebbe due identità autenticate distinte da confrontare, concetto che Sentinel non ha ancora): risponde solo alla domanda "questo endpoint richiede autenticazione?".
+3. **Report**: JSON con ogni finding (endpoint, parametro, payload, evidenza, raccomandazione, severità), un riepilogo per severità **e per tipologia di problema**, un punteggio di rischio numerico oltre alla valutazione qualitativa, e un campo `narrative` con un riassunto testuale in italiano.
 
-Moduli pianificati per iterazioni successive: XSS, brute force sugli endpoint di autenticazione.
+Moduli pianificati per iterazioni successive: XSS, IDOR/BOLA con identità multiple, brute force sugli endpoint di autenticazione.
 
 ## Avvio rapido
 
@@ -63,8 +65,14 @@ Risposta (esempio):
   "endpointsTested": 3,
   "openApiSpecUrl": null,
   "findings": [ { "type": "SQL_INJECTION_ERROR_BASED", "severity": "CRITICAL", "...": "..." } ],
-  "summary": { "totalFindings": 1, "overallRisk": "CRITICAL", "countsBySeverity": { "...": 0 } },
-  "narrative": "Investigazione su http://localhost:9090 completata in ... Rilevate 1 vulnerabilità ..."
+  "summary": {
+    "totalFindings": 1,
+    "overallRisk": "CRITICAL",
+    "riskScore": 40,
+    "countsBySeverity": { "...": 0 },
+    "countsByType": { "SQL_INJECTION_ERROR_BASED": 1, "SQL_INJECTION_BOOLEAN_BASED": 0, "MISSING_AUTHENTICATION": 0 }
+  },
+  "narrative": "Investigazione su http://localhost:9090 completata in ... Rilevate 1 vulnerabilità (rischio complessivo: CRITICAL, punteggio di rischio: 40): 1 CRITICAL. Per tipologia: 1 SQL_INJECTION_ERROR_BASED."
 }
 ```
 
@@ -90,8 +98,17 @@ Proprietà in `src/main/resources/application.properties` (sovrascrivibili anche
 | `sentinel.scan.auto-scan-max-attempts` | `20` | Tentativi di raggiungibilità del target prima di rinunciare all'auto-scan |
 | `sentinel.scan.auto-scan-retry-delay-ms` | `3000` | Attesa tra un tentativo e l'altro |
 | `sentinel.scan.sql-injection.enabled` | `true` | Abilita/disabilita il modulo SQL injection. A `false` il modulo non viene nemmeno istanziato |
+| `sentinel.scan.missing-authentication.enabled` | `true` | Abilita/disabilita il modulo Missing Authentication |
 
-Ogni modulo di attacco futuro (XSS, brute force, ...) seguirà la stessa convenzione `sentinel.scan.<modulo>.enabled`.
+Ogni modulo di attacco futuro (XSS, IDOR/BOLA, brute force, ...) seguirà la stessa convenzione `sentinel.scan.<modulo>.enabled`.
+
+## Metrica di rischio
+
+Oltre alla lista dei finding, `summary` risponde a tre domande diverse:
+
+- **`countsBySeverity` / `overallRisk`** — quanto è grave il problema peggiore trovato (INFO → CRITICAL).
+- **`countsByType`** — quanti problemi per ciascuna tipologia (`SQL_INJECTION_ERROR_BASED`, `SQL_INJECTION_BOOLEAN_BASED`, `MISSING_AUTHENTICATION`, ...), utile quando i moduli attivi sono più di uno e si vuole capire su cosa concentrarsi.
+- **`riskScore`** — punteggio numerico (somma pesata: CRITICAL=40, HIGH=20, MEDIUM=8, LOW=3, INFO=0) che distingue il *volume* dei problemi a parità di `overallRisk`: 1 CRITICAL e 20 CRITICAL hanno lo stesso `overallRisk`, ma punteggio molto diverso. È una euristica pensata per confrontare scansioni successive dello stesso target, non un CVSS o un punteggio "ufficiale".
 
 ## Sviluppo
 

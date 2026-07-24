@@ -5,6 +5,7 @@ import com.f3rren.sentinel.http.SentinelHttpClient;
 import com.f3rren.sentinel.model.ScanReport;
 import com.f3rren.sentinel.model.ScanSummary;
 import com.f3rren.sentinel.model.Severity;
+import com.f3rren.sentinel.model.VulnerabilityType;
 import com.f3rren.sentinel.web.exception.InvalidTargetException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -84,7 +85,7 @@ class AutoScanRunnerTest {
     private ScanReport fakeReport() {
         Instant now = Instant.now();
         return new ScanReport("id", "http://localhost:9090", now, now, 10, 0, 0, null,
-                List.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Severity.INFO),
+                List.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Map.of(VulnerabilityType.SQL_INJECTION_ERROR_BASED, 0), Severity.INFO, 0),
                 "Investigazione su http://localhost:9090 completata. Nessuna vulnerabilità rilevata.");
     }
 }

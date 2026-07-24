@@ -5,6 +5,8 @@ import java.util.Map;
 public record ScanSummary(
         int totalFindings,
         Map<Severity, Integer> countsBySeverity,
-        Severity overallRisk
+        Map<VulnerabilityType, Integer> countsByType,
+        Severity overallRisk,
+        int riskScore
 ) {
 }
