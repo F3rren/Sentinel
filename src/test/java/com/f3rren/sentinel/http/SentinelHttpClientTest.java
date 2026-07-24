@@ -30,6 +30,7 @@ class SentinelHttpClientTest {
     private volatile String lastQuery;
     private volatile String lastBody;
     private volatile String lastContentType;
+    private volatile String lastUserAgent;
 
     @BeforeEach
     void startServer() throws IOException {
@@ -43,6 +44,17 @@ class SentinelHttpClientTest {
     @AfterEach
     void stopServer() {
         server.stop(0);
+    }
+
+    @Test
+    void configuredUserAgentReachesTheServerUnaltered() throws Exception {
+        // The gateway can block requests by User-Agent (bot protection). The JDK HttpClient sets
+        // its own default "Java-http-client/<version>" User-Agent when none is provided; if the
+        // explicit header set here were ever lost or overridden, Sentinel's own traffic could be
+        // silently rejected before it even reaches the target's business logic.
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/echo", Map.of());
+
+        assertThat(lastUserAgent).isEqualTo("Sentinel-Test/1.0");
     }
 
     @Test
@@ -133,6 +145,7 @@ class SentinelHttpClientTest {
         lastMethod = exchange.getRequestMethod();
         lastQuery = exchange.getRequestURI().getRawQuery();
         lastContentType = exchange.getRequestHeaders().getFirst("Content-Type");
+        lastUserAgent = exchange.getRequestHeaders().getFirst("User-Agent");
         try (InputStream is = exchange.getRequestBody()) {
             lastBody = new String(is.readAllBytes(), StandardCharsets.UTF_8);
         }
