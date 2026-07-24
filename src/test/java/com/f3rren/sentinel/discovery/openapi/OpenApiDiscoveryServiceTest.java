@@ -143,6 +143,41 @@ class OpenApiDiscoveryServiceTest {
             }
             """;
 
+    private static final String SPEC_WITH_OPTIONAL_PATTERN_FIELD = """
+            {
+              "openapi": "3.0.1",
+              "paths": {
+                "/aquariums": {
+                  "post": {
+                    "requestBody": {
+                      "content": {
+                        "application/json": {
+                          "schema": { "$ref": "#/components/schemas/CreateAquariumDTO" }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "components": {
+                "schemas": {
+                  "CreateAquariumDTO": {
+                    "required": ["name", "type"],
+                    "type": "object",
+                    "properties": {
+                      "name": {"type": "string", "minLength": 2, "maxLength": 100},
+                      "type": {"type": "string", "enum": ["saltwater", "freshwater"]},
+                      "imageUrl": {
+                        "type": "string",
+                        "pattern": "^$|^https?://[^\\\\s/$.?#].[^\\\\s]*$"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
     @Mock
     private SentinelHttpClient httpClient;
 
@@ -269,6 +304,32 @@ class OpenApiDiscoveryServiceTest {
 
         Endpoint noBody = find(endpoints, HttpMethod.POST, "http://localhost:8080/no-body");
         assertThat(noBody.requestBodySample()).isNull();
+    }
+
+    @Test
+    void omitsOptionalPropertiesNotListedAsRequired() throws Exception {
+        when(httpClient.get(anyString())).thenAnswer(invocation -> {
+            String url = invocation.getArgument(0);
+            if (url.endsWith("/v3/api-docs")) {
+                return new HttpResponseData(200, SPEC_WITH_OPTIONAL_PATTERN_FIELD, 5);
+            }
+            return new HttpResponseData(404, "", 5);
+        });
+
+        OpenApiDiscoveryService service = new OpenApiDiscoveryService(httpClient);
+        Optional<OpenApiDiscoveryResult> result = service.discover("http://localhost:8080");
+
+        assertThat(result).isPresent();
+        Endpoint createAquarium = find(result.get().endpoints(), HttpMethod.POST, "http://localhost:8080/aquariums");
+        assertThat(createAquarium.requestBodySample()).isNotNull();
+
+        JsonNode body = new ObjectMapper().readTree(createAquarium.requestBodySample());
+        // name and type are required: must be present.
+        assertThat(body.has("name")).isTrue();
+        assertThat(body.path("type").asText()).isEqualTo("saltwater");
+        // imageUrl is optional and guarded by a URL pattern our generic sample can't satisfy -
+        // omitting it (leaving it null/absent) passes validation; a "test" placeholder wouldn't.
+        assertThat(body.has("imageUrl")).isFalse();
     }
 
     private Endpoint find(List<Endpoint> endpoints, HttpMethod method, String url) {

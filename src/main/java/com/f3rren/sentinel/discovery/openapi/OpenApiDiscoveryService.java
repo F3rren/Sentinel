@@ -286,6 +286,15 @@ public class OpenApiDiscoveryService {
      * anything. Values aren't random noise: reusing {@link #sampleValueForSchema} means numeric
      * and boolean fields get a value of the right JSON type, which is far more likely to pass
      * basic deserialization/validation and reach the endpoint's real logic.
+     * <p>
+     * Only properties listed in the schema's own {@code required} array are populated, when
+     * that array is present and non-empty. Optional fields are frequently guarded by a
+     * {@code pattern}/format we have no way to satisfy in general (a URL regex, an ISO code,
+     * ...); a generic sample value trips validation on a field that didn't need to be there at
+     * all, since JSR-380 constraints like {@code @Pattern}/{@code @Size} treat an absent
+     * (null) value as valid - only {@code @NotNull}/{@code @NotBlank} on a required field care.
+     * Falls back to populating every property when {@code required} is absent, since a fuller
+     * guess beats an empty body.
      */
     private String buildRequestBodySample(JsonNode root, JsonNode operation) {
         JsonNode schema = operation.path("requestBody").path("content").path("application/json").path("schema");
@@ -297,11 +306,26 @@ public class OpenApiDiscoveryService {
         if (!properties.isObject()) {
             return null;
         }
+        Set<String> requiredNames = requiredPropertyNames(resolved);
+
         ObjectNode body = objectMapper.createObjectNode();
         for (Map.Entry<String, JsonNode> property : properties.properties()) {
+            if (!requiredNames.isEmpty() && !requiredNames.contains(property.getKey())) {
+                continue;
+            }
             setSampleValue(root, body, property.getKey(), property.getValue());
         }
         return body.isEmpty() ? null : body.toString();
+    }
+
+    private Set<String> requiredPropertyNames(JsonNode schema) {
+        Set<String> names = new LinkedHashSet<>();
+        for (JsonNode name : asList(schema.path("required"))) {
+            if (name.isTextual()) {
+                names.add(name.asText());
+            }
+        }
+        return names;
     }
 
     /**
