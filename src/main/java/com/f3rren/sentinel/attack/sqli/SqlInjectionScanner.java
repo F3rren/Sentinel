@@ -80,7 +80,7 @@ public class SqlInjectionScanner implements AttackModule {
 
         HttpResponseData baseline;
         try {
-            baseline = httpClient.exchange(endpoint.method(), endpoint.url(), baselineParams);
+            baseline = httpClient.exchange(endpoint.method(), endpoint.url(), baselineParams, endpoint.requestBodySample());
         } catch (Exception e) {
             log.warn("Baseline request failed for {} {}: {}", endpoint.method(), endpoint.url(), e.getMessage());
             return findings;

@@ -29,6 +29,7 @@ class SentinelHttpClientTest {
     private volatile String lastMethod;
     private volatile String lastQuery;
     private volatile String lastBody;
+    private volatile String lastContentType;
 
     @BeforeEach
     void startServer() throws IOException {
@@ -92,9 +93,46 @@ class SentinelHttpClientTest {
         assertThat(lastBody).isEqualTo("name=widget");
     }
 
+    @Test
+    void sendsJsonBodyAndStillAppendsQueryParamsToUrlWhenBothArePresent() throws Exception {
+        Map<String, String> queryParams = new LinkedHashMap<>();
+        queryParams.put("dryRun", "true");
+
+        httpClient.exchange(HttpMethod.POST, baseUrl + "/echo", queryParams, "{\"name\":\"widget\"}");
+
+        assertThat(lastMethod).isEqualTo("POST");
+        assertThat(lastQuery).isEqualTo("dryRun=true");
+        assertThat(lastBody).isEqualTo("{\"name\":\"widget\"}");
+        assertThat(lastContentType).isEqualTo("application/json");
+    }
+
+    @Test
+    void fallsBackToFormEncodingWhenJsonBodyIsNull() throws Exception {
+        Map<String, String> queryParams = new LinkedHashMap<>();
+        queryParams.put("name", "widget");
+
+        httpClient.exchange(HttpMethod.POST, baseUrl + "/echo", queryParams, null);
+
+        assertThat(lastBody).isEqualTo("name=widget");
+        assertThat(lastContentType).isEqualTo("application/x-www-form-urlencoded");
+    }
+
+    @Test
+    void ignoresJsonBodyForBodylessVerbs() throws Exception {
+        Map<String, String> queryParams = new LinkedHashMap<>();
+        queryParams.put("id", "1");
+
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/echo", queryParams, "{\"ignored\":true}");
+
+        assertThat(lastMethod).isEqualTo("GET");
+        assertThat(lastQuery).isEqualTo("id=1");
+        assertThat(lastBody).isEmpty();
+    }
+
     private void echoHandler(HttpExchange exchange) throws IOException {
         lastMethod = exchange.getRequestMethod();
         lastQuery = exchange.getRequestURI().getRawQuery();
+        lastContentType = exchange.getRequestHeaders().getFirst("Content-Type");
         try (InputStream is = exchange.getRequestBody()) {
             lastBody = new String(is.readAllBytes(), StandardCharsets.UTF_8);
         }

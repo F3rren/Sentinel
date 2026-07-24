@@ -38,6 +38,7 @@ class MissingAuthenticationScannerTest {
         server.createContext("/protected-401", exchange -> respond(exchange, 401));
         server.createContext("/protected-403", exchange -> respond(exchange, 403));
         server.createContext("/inconclusive", exchange -> respond(exchange, 415));
+        server.createContext("/requires-json-body", this::requiresJsonBodyHandler);
         server.start();
         baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
 
@@ -89,6 +90,31 @@ class MissingAuthenticationScannerTest {
         Endpoint endpoint = new Endpoint(baseUrl + "/inconclusive", HttpMethod.POST, List.of());
 
         assertThat(scanner.scan(endpoint)).isEmpty();
+    }
+
+    @Test
+    void withoutARequestBodySampleAnEndpointRequiringJsonIsInconclusive() {
+        Endpoint endpoint = new Endpoint(baseUrl + "/requires-json-body", HttpMethod.POST, List.of());
+
+        assertThat(scanner.scan(endpoint)).isEmpty();
+    }
+
+    @Test
+    void aRequestBodySampleLetsTheSameEndpointBeFlagged() {
+        Endpoint endpoint = new Endpoint(baseUrl + "/requires-json-body", HttpMethod.POST, List.of(),
+                "{\"name\":\"test\"}");
+
+        List<Finding> findings = scanner.scan(endpoint);
+
+        assertThat(findings).hasSize(1);
+        assertThat(findings.get(0).severity()).isEqualTo(Severity.HIGH);
+    }
+
+    private void requiresJsonBodyHandler(HttpExchange exchange) throws IOException {
+        String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+        byte[] requestBody = exchange.getRequestBody().readAllBytes();
+        boolean hasJsonBody = "application/json".equals(contentType) && requestBody.length > 0;
+        respond(exchange, hasJsonBody ? 201 : 415);
     }
 
     private void respond(HttpExchange exchange, int status) throws IOException {

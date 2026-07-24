@@ -69,7 +69,7 @@ public class MissingAuthenticationScanner implements AttackModule {
 
         HttpResponseData response;
         try {
-            response = httpClient.exchange(endpoint.method(), endpoint.url(), baselineParams);
+            response = httpClient.exchange(endpoint.method(), endpoint.url(), baselineParams, endpoint.requestBodySample());
         } catch (Exception e) {
             log.warn("Missing-authentication check failed for {} {}: {}", endpoint.method(), endpoint.url(), e.getMessage());
             return List.of();

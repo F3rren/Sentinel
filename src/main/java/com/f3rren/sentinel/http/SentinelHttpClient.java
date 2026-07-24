@@ -60,10 +60,28 @@ public class SentinelHttpClient {
         if (BODY_METHODS.contains(method)) {
             return sendWithForm(method, url, params);
         }
+        return sendWithoutBody(method, appendQuery(url, params));
+    }
+
+    /**
+     * Same as {@link #exchange(HttpMethod, String, Map)}, but when a JSON body sample is
+     * available (an OpenAPI-documented request body), it takes priority over form-encoding
+     * {@code queryParams} into the request body for verbs that carry one - {@code queryParams}
+     * still gets appended to the URL as an actual query string either way, since a documented
+     * body and query parameters aren't mutually exclusive. Falls back to
+     * {@link #exchange(HttpMethod, String, Map)} when {@code jsonBody} is null.
+     */
+    public HttpResponseData exchange(HttpMethod method, String url, Map<String, String> queryParams, String jsonBody) throws IOException, InterruptedException {
+        if (jsonBody == null || !BODY_METHODS.contains(method)) {
+            return exchange(method, url, queryParams);
+        }
+        return sendWithJsonBody(method, appendQuery(url, queryParams), jsonBody);
+    }
+
+    private String appendQuery(String url, Map<String, String> params) {
         String separator = url.contains("?") ? "&" : "?";
         String query = encodeForm(params);
-        String finalUrl = query.isEmpty() ? url : url + separator + query;
-        return sendWithoutBody(method, finalUrl);
+        return query.isEmpty() ? url : url + separator + query;
     }
 
     private HttpResponseData sendWithoutBody(HttpMethod method, String url) throws IOException, InterruptedException {
@@ -82,6 +100,16 @@ public class SentinelHttpClient {
                 .header("User-Agent", userAgent)
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .method(method.name(), HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .build();
+        return send(request);
+    }
+
+    private HttpResponseData sendWithJsonBody(HttpMethod method, String url, String jsonBody) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(requestTimeout)
+                .header("User-Agent", userAgent)
+                .header("Content-Type", "application/json")
+                .method(method.name(), HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
                 .build();
         return send(request);
     }

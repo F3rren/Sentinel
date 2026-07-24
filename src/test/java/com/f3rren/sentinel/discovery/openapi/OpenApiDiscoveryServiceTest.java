@@ -8,6 +8,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpMethod;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Optional;
@@ -96,6 +98,40 @@ class OpenApiDiscoveryServiceTest {
                     "parameters": [
                       {"name": "search", "in": "query", "schema": {"type": "string"}}
                     ]
+                  }
+                }
+              }
+            }
+            """;
+
+    private static final String SPEC_WITH_REQUEST_BODY = """
+            {
+              "openapi": "3.0.1",
+              "paths": {
+                "/aquariums": {
+                  "post": {
+                    "requestBody": {
+                      "content": {
+                        "application/json": {
+                          "schema": { "$ref": "#/components/schemas/CreateAquariumDTO" }
+                        }
+                      }
+                    }
+                  }
+                },
+                "/no-body": {
+                  "post": {}
+                }
+              },
+              "components": {
+                "schemas": {
+                  "CreateAquariumDTO": {
+                    "type": "object",
+                    "properties": {
+                      "name": {"type": "string"},
+                      "volume": {"type": "integer"},
+                      "saltwater": {"type": "boolean"}
+                    }
                   }
                 }
               }
@@ -194,6 +230,36 @@ class OpenApiDiscoveryServiceTest {
         assertThat(result.get().specUrl()).isEqualTo("http://localhost:8080/swagger-resources");
         assertThat(result.get().endpoints()).hasSize(1);
         assertThat(result.get().endpoints().get(0).url()).isEqualTo("http://localhost:8080/aquariums");
+    }
+
+    @Test
+    void generatesTypedJsonRequestBodyFromReferencedSchema() throws Exception {
+        when(httpClient.get(anyString())).thenAnswer(invocation -> {
+            String url = invocation.getArgument(0);
+            if (url.endsWith("/v3/api-docs")) {
+                return new HttpResponseData(200, SPEC_WITH_REQUEST_BODY, 5);
+            }
+            return new HttpResponseData(404, "", 5);
+        });
+
+        OpenApiDiscoveryService service = new OpenApiDiscoveryService(httpClient);
+        Optional<OpenApiDiscoveryResult> result = service.discover("http://localhost:8080");
+
+        assertThat(result).isPresent();
+        List<Endpoint> endpoints = result.get().endpoints();
+
+        Endpoint createAquarium = find(endpoints, HttpMethod.POST, "http://localhost:8080/aquariums");
+        assertThat(createAquarium.requestBodySample()).isNotNull();
+
+        JsonNode body = new ObjectMapper().readTree(createAquarium.requestBodySample());
+        assertThat(body.path("name").isTextual()).isTrue();
+        assertThat(body.path("volume").isInt()).isTrue();
+        assertThat(body.path("volume").asInt()).isEqualTo(1);
+        assertThat(body.path("saltwater").isBoolean()).isTrue();
+        assertThat(body.path("saltwater").asBoolean()).isTrue();
+
+        Endpoint noBody = find(endpoints, HttpMethod.POST, "http://localhost:8080/no-body");
+        assertThat(noBody.requestBodySample()).isNull();
     }
 
     private Endpoint find(List<Endpoint> endpoints, HttpMethod method, String url) {

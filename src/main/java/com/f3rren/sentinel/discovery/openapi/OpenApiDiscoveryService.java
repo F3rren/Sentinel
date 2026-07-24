@@ -10,6 +10,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -216,7 +217,10 @@ public class OpenApiDiscoveryService {
                         .map(name -> new EndpointParam(name, sampleValueForParameter(findParam(params, name))))
                         .toList();
 
-                endpoints.add(new Endpoint(origin + resolvedPath, HttpMethod.valueOf(methodName.toUpperCase()), queryParams));
+                String requestBodySample = buildRequestBodySample(root, operation);
+
+                endpoints.add(new Endpoint(origin + resolvedPath, HttpMethod.valueOf(methodName.toUpperCase()),
+                        queryParams, requestBodySample));
             }
         }
         return endpoints;
@@ -249,7 +253,10 @@ public class OpenApiDiscoveryService {
         if (paramNode.has("example") && !paramNode.path("example").asText("").isBlank()) {
             return paramNode.path("example").asText();
         }
-        JsonNode schema = paramNode.path("schema");
+        return sampleValueForSchema(paramNode.path("schema"));
+    }
+
+    private String sampleValueForSchema(JsonNode schema) {
         if (schema.has("example") && !schema.path("example").asText("").isBlank()) {
             return schema.path("example").asText();
         }
@@ -270,6 +277,63 @@ public class OpenApiDiscoveryService {
             };
             default -> "test";
         };
+    }
+
+    /**
+     * Builds a type-aware sample JSON body for operations that document one, so a POST/PUT/PATCH
+     * expecting {@code application/json} gets something it can actually parse instead of an
+     * empty form-encoded request it will just reject (415/400) before any attack module learns
+     * anything. Values aren't random noise: reusing {@link #sampleValueForSchema} means numeric
+     * and boolean fields get a value of the right JSON type, which is far more likely to pass
+     * basic deserialization/validation and reach the endpoint's real logic.
+     */
+    private String buildRequestBodySample(JsonNode root, JsonNode operation) {
+        JsonNode schema = operation.path("requestBody").path("content").path("application/json").path("schema");
+        if (!schema.isObject()) {
+            return null;
+        }
+        JsonNode resolved = resolveSchemaRef(root, schema);
+        JsonNode properties = resolved.path("properties");
+        if (!properties.isObject()) {
+            return null;
+        }
+        ObjectNode body = objectMapper.createObjectNode();
+        for (Map.Entry<String, JsonNode> property : properties.properties()) {
+            setSampleValue(body, property.getKey(), property.getValue());
+        }
+        return body.isEmpty() ? null : body.toString();
+    }
+
+    private void setSampleValue(ObjectNode target, String name, JsonNode propertySchema) {
+        String type = propertySchema.path("type").asText("string");
+        switch (type) {
+            case "integer" -> target.put(name, 1);
+            case "number" -> target.put(name, 1.0);
+            case "boolean" -> target.put(name, true);
+            case "array" -> target.putArray(name);
+            case "object" -> target.putObject(name);
+            default -> target.put(name, sampleValueForSchema(propertySchema));
+        }
+    }
+
+    /**
+     * Follows a single {@code $ref: #/components/schemas/Name} indirection against the spec's
+     * own {@code components.schemas} section - the common case for a DTO-shaped request body.
+     * Schemas combined via allOf/oneOf/anyOf, or refs into another document, are out of scope:
+     * this returns an empty object rather than guessing, which {@link #buildRequestBodySample}
+     * treats as "nothing to send".
+     */
+    private JsonNode resolveSchemaRef(JsonNode root, JsonNode schema) {
+        if (!schema.has("$ref")) {
+            return schema;
+        }
+        String ref = schema.path("$ref").asText("");
+        String prefix = "#/components/schemas/";
+        if (!ref.startsWith(prefix)) {
+            return objectMapper.createObjectNode();
+        }
+        JsonNode resolved = root.path("components").path("schemas").path(ref.substring(prefix.length()));
+        return resolved.isObject() ? resolved : objectMapper.createObjectNode();
     }
 
     private List<JsonNode> asList(JsonNode arrayNode) {
