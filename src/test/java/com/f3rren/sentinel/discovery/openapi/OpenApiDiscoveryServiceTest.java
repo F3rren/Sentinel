@@ -169,7 +169,8 @@ class OpenApiDiscoveryServiceTest {
                     "properties": {
                       "name": {"type": "string"},
                       "purchaseDate": {"type": "string", "format": "date"},
-                      "recordedAt": {"type": "string", "format": "date-time"}
+                      "recordedAt": {"type": "string", "format": "date-time"},
+                      "contactEmail": {"type": "string", "format": "email"}
                     }
                   }
                 }
@@ -329,7 +330,10 @@ class OpenApiDiscoveryServiceTest {
         assertThat(createAquarium.requestBodySample()).isNotNull();
 
         JsonNode body = new ObjectMapper().readTree(createAquarium.requestBodySample());
-        assertThat(body.path("name").isTextual()).isTrue();
+        // A generic string property with no format/enum gets a random, clearly-synthetic token
+        // rather than a plain word like "test" - easy to tell apart from real user input and to
+        // grep for in the target's logs/database afterward.
+        assertThat(body.path("name").asText()).startsWith("sentinel-");
         assertThat(body.path("volume").isInt()).isTrue();
         assertThat(body.path("volume").asInt()).isEqualTo(1);
         assertThat(body.path("saltwater").isBoolean()).isTrue();
@@ -366,6 +370,9 @@ class OpenApiDiscoveryServiceTest {
         assertThat(LocalDate.parse(body.path("purchaseDate").asText())).isEqualTo(LocalDate.now());
         assertThat(Instant.parse(body.path("recordedAt").asText()))
                 .isCloseTo(Instant.now(), org.assertj.core.api.Assertions.within(java.time.Duration.ofMinutes(1)));
+        // Also synthetic, not a real address, but still a well-formed email so it doesn't fail
+        // deserialization/format validation before Sentinel's own auth check even runs.
+        assertThat(body.path("contactEmail").asText()).matches("sentinel-[a-f0-9]{12}@sentinel\\.invalid");
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.f3rren.sentinel.discovery.openapi;
 
+import com.f3rren.sentinel.discovery.SampleValues;
 import com.f3rren.sentinel.http.HttpResponseData;
 import com.f3rren.sentinel.http.SentinelHttpClient;
 import com.f3rren.sentinel.model.Endpoint;
@@ -23,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Looks for a machine-readable API description (OpenAPI/Swagger) on the target and, when one
@@ -288,13 +290,13 @@ public class OpenApiDiscoveryService {
             case "integer", "number" -> "1";
             case "boolean" -> "true";
             case "string" -> switch (format) {
-                case "uuid" -> "00000000-0000-0000-0000-000000000001";
+                case "uuid" -> UUID.randomUUID().toString();
                 case "date" -> LocalDate.now().toString();
                 case "date-time" -> Instant.now().toString();
-                case "email" -> "test@example.com";
-                default -> "test";
+                case "email" -> SampleValues.randomEmail();
+                default -> SampleValues.randomToken();
             };
-            default -> "test";
+            default -> SampleValues.randomToken();
         };
     }
 
