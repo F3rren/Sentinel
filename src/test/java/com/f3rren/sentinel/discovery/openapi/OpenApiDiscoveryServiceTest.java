@@ -57,6 +57,51 @@ class OpenApiDiscoveryServiceTest {
             }
             """;
 
+    private static final String SWAGGER_CONFIG = """
+            {
+              "urls": [
+                {"url": "/aquariums-service/v3/api-docs", "name": "aquariums-service"},
+                {"url": "/species-service/v3/api-docs", "name": "species-service"}
+              ]
+            }
+            """;
+
+    private static final String SWAGGER_RESOURCES = """
+            [
+              {"name": "aquariums-service", "url": "/aquariums-service/v2/api-docs", "swaggerVersion": "2.0"}
+            ]
+            """;
+
+    private static final String SERVICE_A_SPEC = """
+            {
+              "openapi": "3.0.1",
+              "paths": {
+                "/aquariums": {
+                  "get": {
+                    "parameters": [
+                      {"name": "name", "in": "query", "schema": {"type": "string"}}
+                    ]
+                  }
+                }
+              }
+            }
+            """;
+
+    private static final String SERVICE_B_SPEC = """
+            {
+              "openapi": "3.0.1",
+              "paths": {
+                "/species": {
+                  "post": {
+                    "parameters": [
+                      {"name": "search", "in": "query", "schema": {"type": "string"}}
+                    ]
+                  }
+                }
+              }
+            }
+            """;
+
     @Mock
     private SentinelHttpClient httpClient;
 
@@ -101,6 +146,54 @@ class OpenApiDiscoveryServiceTest {
         OpenApiDiscoveryService service = new OpenApiDiscoveryService(httpClient);
 
         assertThat(service.discover("http://localhost:8080")).isEmpty();
+    }
+
+    @Test
+    void discoversEndpointsThroughAggregatedSpringdocSwaggerConfig() throws Exception {
+        when(httpClient.get(anyString())).thenAnswer(invocation -> {
+            String url = invocation.getArgument(0);
+            return switch (url) {
+                case "http://localhost:8080/v3/api-docs/swagger-config" -> new HttpResponseData(200, SWAGGER_CONFIG, 5);
+                case "http://localhost:8080/aquariums-service/v3/api-docs" -> new HttpResponseData(200, SERVICE_A_SPEC, 5);
+                case "http://localhost:8080/species-service/v3/api-docs" -> new HttpResponseData(200, SERVICE_B_SPEC, 5);
+                default -> new HttpResponseData(404, "", 5);
+            };
+        });
+
+        OpenApiDiscoveryService service = new OpenApiDiscoveryService(httpClient);
+        Optional<OpenApiDiscoveryResult> result = service.discover("http://localhost:8080");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().specUrl()).isEqualTo("http://localhost:8080/v3/api-docs/swagger-config");
+
+        List<Endpoint> endpoints = result.get().endpoints();
+        assertThat(endpoints).hasSize(2);
+
+        Endpoint aquariums = find(endpoints, HttpMethod.GET, "http://localhost:8080/aquariums");
+        assertThat(aquariums.params()).extracting("name").containsExactly("name");
+
+        Endpoint species = find(endpoints, HttpMethod.POST, "http://localhost:8080/species");
+        assertThat(species.params()).extracting("name").containsExactly("search");
+    }
+
+    @Test
+    void discoversEndpointsThroughSpringfoxSwaggerResourcesArray() throws Exception {
+        when(httpClient.get(anyString())).thenAnswer(invocation -> {
+            String url = invocation.getArgument(0);
+            return switch (url) {
+                case "http://localhost:8080/swagger-resources" -> new HttpResponseData(200, SWAGGER_RESOURCES, 5);
+                case "http://localhost:8080/aquariums-service/v2/api-docs" -> new HttpResponseData(200, SERVICE_A_SPEC, 5);
+                default -> new HttpResponseData(404, "", 5);
+            };
+        });
+
+        OpenApiDiscoveryService service = new OpenApiDiscoveryService(httpClient);
+        Optional<OpenApiDiscoveryResult> result = service.discover("http://localhost:8080");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().specUrl()).isEqualTo("http://localhost:8080/swagger-resources");
+        assertThat(result.get().endpoints()).hasSize(1);
+        assertThat(result.get().endpoints().get(0).url()).isEqualTo("http://localhost:8080/aquariums");
     }
 
     private Endpoint find(List<Endpoint> endpoints, HttpMethod method, String url) {

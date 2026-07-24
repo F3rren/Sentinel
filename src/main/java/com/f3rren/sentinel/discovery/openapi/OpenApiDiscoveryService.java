@@ -15,8 +15,10 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -24,6 +26,11 @@ import java.util.Set;
  * is found, enumerates every declared path/method as a candidate {@link Endpoint} - a much
  * more complete and reliable source than crawling HTML, for any project with Swagger wired up
  * (springdoc, springfox, or a hand-served swagger.json/openapi.json).
+ * <p>
+ * API gateways typically don't serve a single spec of their own: they aggregate one spec per
+ * downstream service and expose the list via springdoc's {@code /v3/api-docs/swagger-config}
+ * or springfox's {@code /swagger-resources}. When no single spec is found, this service also
+ * follows that aggregation so the whole surface behind the gateway gets discovered.
  */
 @Service
 public class OpenApiDiscoveryService {
@@ -39,6 +46,11 @@ public class OpenApiDiscoveryService {
             "/swagger/v1/swagger.json"
     );
 
+    private static final List<String> AGGREGATOR_PATHS = List.of(
+            "/v3/api-docs/swagger-config",
+            "/swagger-resources"
+    );
+
     private static final Set<String> SUPPORTED_METHODS = Set.of("get", "post", "put", "delete", "patch");
 
     private final SentinelHttpClient httpClient;
@@ -48,11 +60,19 @@ public class OpenApiDiscoveryService {
         this.httpClient = httpClient;
     }
 
-    public java.util.Optional<OpenApiDiscoveryResult> discover(String targetUrl) {
+    public Optional<OpenApiDiscoveryResult> discover(String targetUrl) {
         String origin = originOf(targetUrl);
         if (origin == null) {
-            return java.util.Optional.empty();
+            return Optional.empty();
         }
+        Optional<OpenApiDiscoveryResult> singleSpec = discoverSingleSpec(origin);
+        if (singleSpec.isPresent()) {
+            return singleSpec;
+        }
+        return discoverAggregatedSpecs(origin);
+    }
+
+    private Optional<OpenApiDiscoveryResult> discoverSingleSpec(String origin) {
         for (String candidate : CANDIDATE_SPEC_PATHS) {
             String specUrl = origin + candidate;
             try {
@@ -67,13 +87,94 @@ public class OpenApiDiscoveryService {
                 List<Endpoint> endpoints = parseSpec(origin, root);
                 if (!endpoints.isEmpty()) {
                     log.info("Discovered {} endpoint(s) from OpenAPI/Swagger spec at {}", endpoints.size(), specUrl);
-                    return java.util.Optional.of(new OpenApiDiscoveryResult(specUrl, endpoints));
+                    return Optional.of(new OpenApiDiscoveryResult(specUrl, endpoints));
                 }
             } catch (Exception e) {
                 log.debug("OpenAPI probe failed for {}: {}", specUrl, e.getMessage());
             }
         }
-        return java.util.Optional.empty();
+        return Optional.empty();
+    }
+
+    /**
+     * Behind a gateway there's usually no single spec, only an index of per-service ones.
+     * Fetches that index, then every sub-spec it points to, resolving each sub-spec's paths
+     * against the gateway's own origin - correct as long as the gateway forwards matched
+     * routes without rewriting the path, which is the common case for prefix-based routing.
+     */
+    private Optional<OpenApiDiscoveryResult> discoverAggregatedSpecs(String origin) {
+        for (String aggregatorPath : AGGREGATOR_PATHS) {
+            String aggregatorUrl = origin + aggregatorPath;
+            try {
+                HttpResponseData response = httpClient.get(aggregatorUrl);
+                if (response.statusCode() != 200 || response.bodyOrEmpty().isBlank()) {
+                    continue;
+                }
+                JsonNode root = objectMapper.readTree(response.bodyOrEmpty());
+                List<String> subSpecUrls = extractSubSpecUrls(root);
+                if (subSpecUrls.isEmpty()) {
+                    continue;
+                }
+
+                List<Endpoint> endpoints = new ArrayList<>();
+                for (String subSpecUrl : subSpecUrls) {
+                    fetchAndParseSubSpec(origin, subSpecUrl, endpoints);
+                }
+                if (!endpoints.isEmpty()) {
+                    log.info("Discovered {} endpoint(s) across {} aggregated OpenAPI spec(s) via {}",
+                            endpoints.size(), subSpecUrls.size(), aggregatorUrl);
+                    return Optional.of(new OpenApiDiscoveryResult(aggregatorUrl, endpoints));
+                }
+            } catch (Exception e) {
+                log.debug("OpenAPI aggregator probe failed for {}: {}", aggregatorUrl, e.getMessage());
+            }
+        }
+        return Optional.empty();
+    }
+
+    private void fetchAndParseSubSpec(String origin, String subSpecUrl, List<Endpoint> endpoints) {
+        String absoluteUrl = subSpecUrl.startsWith("http")
+                ? subSpecUrl
+                : origin + (subSpecUrl.startsWith("/") ? subSpecUrl : "/" + subSpecUrl);
+        try {
+            HttpResponseData response = httpClient.get(absoluteUrl);
+            if (response.statusCode() != 200 || response.bodyOrEmpty().isBlank()) {
+                return;
+            }
+            JsonNode subRoot = objectMapper.readTree(response.bodyOrEmpty());
+            if (!looksLikeOpenApiSpec(subRoot)) {
+                return;
+            }
+            for (Endpoint endpoint : parseSpec(origin, subRoot)) {
+                boolean alreadyKnown = endpoints.stream()
+                        .anyMatch(e -> e.method() == endpoint.method() && e.url().equals(endpoint.url()));
+                if (!alreadyKnown) {
+                    endpoints.add(endpoint);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to fetch aggregated sub-spec {}: {}", absoluteUrl, e.getMessage());
+        }
+    }
+
+    /**
+     * Springdoc's {@code swagger-config} exposes {@code {"urls":[{"url":"...","name":"..."}]}};
+     * springfox's {@code swagger-resources} is the same {@code [{"url":"...","name":"..."}]}
+     * array at the document root instead of nested under a field. Both shapes are handled here.
+     */
+    private List<String> extractSubSpecUrls(JsonNode root) {
+        Set<String> urls = new LinkedHashSet<>();
+        JsonNode urlsNode = root.path("urls");
+        JsonNode arrayNode = urlsNode.isArray() ? urlsNode : (root.isArray() ? root : null);
+        if (arrayNode != null) {
+            for (JsonNode entry : arrayNode) {
+                String url = entry.path("url").asText("");
+                if (!url.isBlank()) {
+                    urls.add(url);
+                }
+            }
+        }
+        return new ArrayList<>(urls);
     }
 
     private boolean looksLikeOpenApiSpec(JsonNode root) {
