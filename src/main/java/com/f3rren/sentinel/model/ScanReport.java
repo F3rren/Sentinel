@@ -12,6 +12,7 @@ public record ScanReport(
         int endpointsDiscovered,
         String openApiSpecUrl,
         List<Finding> findings,
-        ScanSummary summary
+        ScanSummary summary,
+        String narrative
 ) {
 }

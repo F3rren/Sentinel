@@ -37,7 +37,8 @@ class ScanControllerTest {
     void startScanReturnsCreatedReport() throws Exception {
         ScanReport report = new ScanReport(
                 "scan-1", "http://localhost:8080", Instant.now(), Instant.now(), 42, 3, null,
-                List.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Severity.INFO));
+                List.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Severity.INFO),
+                "Investigazione su http://localhost:8080 completata in 42 ms. Nessuna vulnerabilità rilevata.");
         when(scanService.runScan(eq("localhost:8080"))).thenReturn(report);
 
         mockMvc.perform(post("/api/scans")
