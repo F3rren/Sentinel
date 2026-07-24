@@ -77,4 +77,27 @@ class ScanControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("scan_not_found"));
     }
+
+    @Test
+    void getLatestScanReturnsMostRecentReport() throws Exception {
+        ScanReport report = new ScanReport(
+                "scan-auto", "http://api-gateway:8080", Instant.now(), Instant.now(), 3646, 46,
+                "http://api-gateway:8080/v3/api-docs/swagger-config",
+                List.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Severity.INFO),
+                "Investigazione su http://api-gateway:8080 completata in 3,6 secondi. Nessuna vulnerabilità rilevata.");
+        when(scanService.getLatestReport()).thenReturn(report);
+
+        mockMvc.perform(get("/api/scans/latest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("scan-auto"));
+    }
+
+    @Test
+    void getLatestScanReturnsNotFoundWhenNoScanRanYet() throws Exception {
+        when(scanService.getLatestReport()).thenThrow(new ScanNotFoundException("latest"));
+
+        mockMvc.perform(get("/api/scans/latest"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("scan_not_found"));
+    }
 }

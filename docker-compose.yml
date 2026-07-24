@@ -11,10 +11,15 @@
 #      reads .env automatically from now on, every time, no shell exports needed. Switching
 #      to a different victim later just means editing .env again.
 #   3. docker compose up -d --build
-#   4. Wait for the victim's entry point to actually be accepting requests (most projects
-#      have no healthcheck on their own app containers, so Sentinel can't wait on it
-#      automatically) before scanning:
-#        POST http://localhost:8088/api/scans  {"targetUrl": "http://<victim-entrypoint>:<port>"}
+#
+# If SENTINEL_SCAN_AUTO_TARGET_URL is also set in .env, that's the whole procedure - Sentinel
+# waits for the victim to actually be accepting requests on its own (most victim projects have
+# no startup healthcheck, so there's no other way to know) and then scans it automatically, no
+# manual POST /api/scans required. Fetch the result whenever you want it:
+#   GET http://localhost:8088/api/scans/latest
+#
+# Without SENTINEL_SCAN_AUTO_TARGET_URL, trigger scans by hand instead:
+#   POST http://localhost:8088/api/scans  {"targetUrl": "http://<victim-entrypoint>:<port>"}
 
 services:
   sentinel:
@@ -24,6 +29,7 @@ services:
       - "8088:8080"
     environment:
       SENTINEL_SCAN_MAX_ENDPOINTS: ${SENTINEL_SCAN_MAX_ENDPOINTS:-25}
+      SENTINEL_SCAN_AUTO_TARGET_URL: ${SENTINEL_SCAN_AUTO_TARGET_URL:-}
     networks:
       - victim-network
 

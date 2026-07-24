@@ -29,6 +29,11 @@ public class ScanController {
         return ResponseEntity.status(HttpStatus.CREATED).body(report);
     }
 
+    @GetMapping("/latest")
+    public ScanReport getLatestScan() {
+        return scanService.getLatestReport();
+    }
+
     @GetMapping("/{id}")
     public ScanReport getScan(@PathVariable String id) {
         return scanService.getReport(id);

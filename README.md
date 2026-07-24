@@ -37,6 +37,12 @@ docker compose up -d --build
 
 Sentinel sarà raggiungibile su `http://localhost:8088`. Dettagli e troubleshooting sono nei commenti di `docker-compose.yml` e `.env.example`.
 
+**Scansione completamente automatica (zero comandi manuali)**: se in `.env` valorizzi anche `SENTINEL_SCAN_AUTO_TARGET_URL` con l'URL della vittima (es. `http://api-gateway:8080`), Sentinel attende da solo che il target risponda e lancia la scansione all'avvio del container, senza bisogno di alcuna richiesta manuale. Il risultato è consultabile in qualsiasi momento con:
+
+```bash
+curl http://localhost:8088/api/scans/latest
+```
+
 ## Uso dell'API
 
 **Avviare una scansione**
@@ -65,6 +71,7 @@ Risposta (esempio):
 
 ```bash
 curl http://localhost:8080/api/scans/{id}
+curl http://localhost:8080/api/scans/latest   # l'ultimo eseguito, manuale o automatico
 ```
 
 ## Configurazione
@@ -77,6 +84,9 @@ Proprietà in `src/main/resources/application.properties` (sovrascrivibili anche
 | `sentinel.scan.request-timeout-ms` | `8000` | Timeout per singola richiesta HTTP |
 | `sentinel.scan.connect-timeout-ms` | `5000` | Timeout di connessione |
 | `sentinel.scan.max-endpoints` | `25` | Numero massimo di endpoint testati per scansione |
+| `sentinel.scan.auto-target-url` | _(vuoto)_ | Se impostata, scansione automatica all'avvio su questo URL, zero comandi manuali |
+| `sentinel.scan.auto-scan-max-attempts` | `20` | Tentativi di raggiungibilità del target prima di rinunciare all'auto-scan |
+| `sentinel.scan.auto-scan-retry-delay-ms` | `3000` | Attesa tra un tentativo e l'altro |
 
 ## Sviluppo
 

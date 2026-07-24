@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Orchestrates a scan end to end: discover candidate endpoints on the target, run every
@@ -41,6 +42,7 @@ public class ScanService {
     private final ReportGenerator reportGenerator;
     private final int maxEndpoints;
     private final Map<String, ScanReport> reports = new ConcurrentHashMap<>();
+    private final AtomicReference<String> latestReportId = new AtomicReference<>();
 
     public ScanService(
             OpenApiDiscoveryService openApiDiscoveryService,
@@ -94,6 +96,7 @@ public class ScanService {
         String id = UUID.randomUUID().toString();
         ScanReport report = reportGenerator.buildReport(id, targetUrl, startedAt, finishedAt, endpoints.size(), openApiSpecUrl, findings);
         reports.put(id, report);
+        latestReportId.set(id);
         return report;
     }
 
@@ -105,7 +108,19 @@ public class ScanService {
         return report;
     }
 
-    private String normalizeTargetUrl(String rawTargetUrl) {
+    /**
+     * The report of the most recently completed scan, regardless of who triggered it - lets a
+     * caller check the outcome of an automatic startup scan without first learning its id.
+     */
+    public ScanReport getLatestReport() {
+        String id = latestReportId.get();
+        if (id == null) {
+            throw new ScanNotFoundException("latest");
+        }
+        return getReport(id);
+    }
+
+    public String normalizeTargetUrl(String rawTargetUrl) {
         if (rawTargetUrl == null || rawTargetUrl.isBlank()) {
             throw new InvalidTargetException("targetUrl non puo' essere vuoto");
         }
