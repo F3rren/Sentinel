@@ -2,6 +2,7 @@ package com.f3rren.sentinel.attack;
 
 import com.f3rren.sentinel.SentinelApplication;
 import com.f3rren.sentinel.attack.authn.MissingAuthenticationScanner;
+import com.f3rren.sentinel.attack.bruteforce.BruteForceScanner;
 import com.f3rren.sentinel.attack.sqli.SqlInjectionScanner;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,8 +24,9 @@ class AttackModuleEnablementTest {
 
     @Test
     void everyModuleIsRegisteredByDefault() {
-        assertThat(attackModules).hasSize(2);
+        assertThat(attackModules).hasSize(3);
         assertThat(attackModules).hasAtLeastOneElementOfType(SqlInjectionScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(MissingAuthenticationScanner.class);
+        assertThat(attackModules).hasAtLeastOneElementOfType(BruteForceScanner.class);
     }
 }

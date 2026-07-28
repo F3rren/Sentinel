@@ -9,12 +9,13 @@ Sentinel is an **automated security testing** tool: given an application's addre
 1. **Endpoint discovery**, in two phases:
    - **OpenAPI/Swagger** (preferred phase): tries to read a spec at `/v3/api-docs`, `/v2/api-docs`, `/swagger.json`, `/openapi.json`, etc. If the target is an API gateway aggregating multiple services (springdoc `swagger-config` or springfox `swagger-resources`), it follows the aggregation and fetches every downstream service's spec. When an operation documents a JSON `requestBody` (typical of POST/PUT/PATCH), it also generates a type-aware sample body (resolving `$ref`s against `components/schemas`: integers as numbers, booleans as booleans, strings with a consistent format), so the endpoint receives a request it can actually process instead of immediately rejecting it with 415/400 for a missing or wrongly-shaped body. Required properties are always populated; optional ones are populated too unless they carry a `pattern` constraint or are an array/object - values a generic sample can't safely guess without risking a validation failure that an absent field would otherwise skip. Fields with no format/enum/pattern constraint get a random, clearly-synthetic `sentinel-<token>` value rather than a plain word like "test" - easy to tell apart from real user data and to grep for in the target's logs/database afterward.
    - **HTML crawling**: if no spec is found (or in addition to it), it parses the target's page for links with a query string and forms, merging them (deduplicated) with whatever Swagger already found.
-2. **Attack**, two modules:
+2. **Attack**, three modules:
    - **SQL Injection**: both error-based (fingerprinting MySQL/MariaDB, PostgreSQL, MSSQL, Oracle, SQLite, and JDBC/Hibernate error messages) and boolean-based/blind (heuristic on injected true/false conditions). A response throttled by the target's own rate limiting (HTTP 429) on either side of the true/false comparison is treated as inconclusive rather than a signal, since it reflects Sentinel's own request volume, not the application's query logic.
    - **Missing Authentication**: flags endpoints that respond successfully (2xx) to a request carrying no credentials at all (Sentinel never sends an authentication header). A 401/403 response is treated as proof that authentication is enforced (no finding); any other status (400/404/5xx) is inconclusive and ignored. Thanks to the JSON body generated from the OpenAPI schema, this now also works for POST/PUT/PATCH endpoints that require a body - previously they almost always returned 415 (inconclusive), now they can receive a real response. This is deliberately narrower than a true IDOR/BOLA test (which would need two distinct authenticated identities to compare - a concept Sentinel doesn't have yet): it only answers "does this endpoint require authentication at all?".
+   - **Brute Force**: on any `POST` endpoint shaped like a login (a JSON body, or form/query parameters, with both a password-like and a username/email-like field), tries a short list of common/default credential pairs (`admin`/`admin`, `admin`/`password`, `root`/`root`, ...). If one is accepted, it's reported as `WEAK_CREDENTIALS` (CRITICAL). Independently, if the target never responds with 429 (Too Many Requests) or 423 (Locked) across the whole attempt budget, it's reported as `MISSING_BRUTE_FORCE_PROTECTION` (LOW) - worded cautiously, since a small fixed attempt count not tripping a lockout doesn't prove one doesn't exist at a higher threshold. Kept deliberately small and fixed (`sentinel.scan.brute-force.max-attempts`, default 8) rather than an exhaustive wordlist, to keep a scan fast and avoid hammering a real login endpoint.
 3. **Report**: JSON with every finding (endpoint, parameter, payload, evidence, recommendation, severity), a summary broken down **by severity and by issue type**, a numeric risk score alongside the qualitative rating, and a `narrative` field with a human-readable summary (in Italian).
 
-Modules planned for future iterations: XSS, IDOR/BOLA with multiple identities, brute force against authentication endpoints.
+Modules planned for future iterations: XSS, IDOR/BOLA with multiple identities, security misconfiguration checks (missing security headers, permissive CORS, exposed debug endpoints).
 
 ## Quick start
 
@@ -102,15 +103,17 @@ Properties in `src/main/resources/application.properties` (overridable via envir
 | `sentinel.scan.auto-scan-retry-delay-ms` | `3000` | Wait between one attempt and the next |
 | `sentinel.scan.sql-injection.enabled` | `true` | Enables/disables the SQL injection module. When `false`, the module isn't even instantiated |
 | `sentinel.scan.missing-authentication.enabled` | `true` | Enables/disables the Missing Authentication module |
+| `sentinel.scan.brute-force.enabled` | `true` | Enables/disables the Brute Force module |
+| `sentinel.scan.brute-force.max-attempts` | `8` | Number of common/default credential pairs tried per login-shaped endpoint before giving up |
 
-Every future attack module (XSS, IDOR/BOLA, brute force, ...) will follow the same `sentinel.scan.<module>.enabled` convention.
+Every future attack module (XSS, IDOR/BOLA, security misconfiguration, ...) will follow the same `sentinel.scan.<module>.enabled` convention.
 
 ## Risk metric
 
 Besides the list of findings, `summary` answers three different questions:
 
 - **`countsBySeverity` / `overallRisk`** - how bad is the worst problem found (INFO → CRITICAL).
-- **`countsByType`** - how many problems for each issue type (`SQL_INJECTION_ERROR_BASED`, `SQL_INJECTION_BOOLEAN_BASED`, `MISSING_AUTHENTICATION`, ...), useful once more than one module is active and you want to know what to focus on.
+- **`countsByType`** - how many problems for each issue type (`SQL_INJECTION_ERROR_BASED`, `SQL_INJECTION_BOOLEAN_BASED`, `MISSING_AUTHENTICATION`, `WEAK_CREDENTIALS`, `MISSING_BRUTE_FORCE_PROTECTION`, ...), useful once more than one module is active and you want to know what to focus on.
 - **`riskScore`** - a numeric score (weighted sum: CRITICAL=40, HIGH=20, MEDIUM=8, LOW=3, INFO=0) that distinguishes the *volume* of problems at equal `overallRisk`: 1 CRITICAL and 20 CRITICAL share the same `overallRisk`, but a very different score. It's a heuristic meant for comparing successive scans of the same target, not a CVSS or an "official" score.
 
 ## Development
