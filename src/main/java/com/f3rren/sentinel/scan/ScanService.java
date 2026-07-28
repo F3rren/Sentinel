@@ -141,9 +141,15 @@ public class ScanService {
                 .map(e -> e.method() + " " + e.url())
                 .toList());
 
+        // Module-outer, endpoint-inner (not the reverse): a module runs across every endpoint
+        // before the next module starts. This matters because attack modules are @Order-ed so
+        // that ones sharing state with the target (e.g. RateLimitScanner deliberately burning
+        // through a rate-limit bucket) run last - endpoint-outer nesting would interleave a
+        // budget-burning module's bursts between every other module's single requests, starving
+        // them of a clean response on later endpoints purely as a side effect of scan order.
         List<Finding> findings = new ArrayList<>();
-        for (Endpoint endpoint : endpointsToScan) {
-            for (AttackModule module : attackModules) {
+        for (AttackModule module : attackModules) {
+            for (Endpoint endpoint : endpointsToScan) {
                 try {
                     findings.addAll(module.scan(endpoint));
                 } catch (Exception e) {

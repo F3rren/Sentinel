@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 
@@ -32,8 +33,18 @@ import java.util.UUID;
  * {@code GET}-only and read-only by construction (no state-changing verb is ever bursted): the
  * whole point is a rapid, repeated request, which would amplify the effect of a single POST/PUT
  * far more than the one-off calls the other modules make.
+ * <p>
+ * Ordered to run strictly after every other module ({@link Order} with the highest value among
+ * them - see {@code ScanService}, which runs each module across every endpoint before moving to
+ * the next): a shared, per-IP rate-limit bucket (a common real-world design, not specific to any
+ * one target) covers every route, not just the one being bursted. Running this module first
+ * would burn through that shared budget early and starve every other module's later requests to
+ * unrelated endpoints of a clean, unthrottled response - turning their real findings (e.g. a
+ * genuinely unauthenticated endpoint) into false negatives (a 429 that gets read as
+ * inconclusive) purely as a side effect of this module's own traffic.
  */
 @Component
+@Order(3)
 @ConditionalOnProperty(prefix = "sentinel.scan.rate-limit", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class RateLimitScanner implements AttackModule {
 

@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -45,6 +46,7 @@ import java.util.regex.Pattern;
  * rate-limited, or could lock out a real account if a valid username were ever guessed).
  */
 @Component
+@Order(2)
 @ConditionalOnProperty(prefix = "sentinel.scan.brute-force", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class BruteForceScanner implements AttackModule {
 

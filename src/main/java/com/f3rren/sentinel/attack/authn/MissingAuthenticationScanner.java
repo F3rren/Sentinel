@@ -11,6 +11,7 @@ import com.f3rren.sentinel.model.VulnerabilityType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 
@@ -35,6 +36,7 @@ import java.util.UUID;
  * meaningful, cheap-to-check signal on its own.
  */
 @Component
+@Order(1)
 @ConditionalOnProperty(prefix = "sentinel.scan.missing-authentication", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class MissingAuthenticationScanner implements AttackModule {
 

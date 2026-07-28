@@ -31,4 +31,13 @@ class AttackModuleEnablementTest {
         assertThat(attackModules).hasAtLeastOneElementOfType(BruteForceScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(RateLimitScanner.class);
     }
+
+    @Test
+    void rateLimitScannerIsOrderedLast() {
+        // ScanService runs each module across every endpoint before the next module starts
+        // (module-outer nesting) specifically so RateLimitScanner's bucket-exhausting burst
+        // doesn't starve the other modules' single requests on endpoints tested later. That
+        // guarantee only holds if Spring actually honors @Order when injecting this list.
+        assertThat(attackModules.get(attackModules.size() - 1)).isInstanceOf(RateLimitScanner.class);
+    }
 }

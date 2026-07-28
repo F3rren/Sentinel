@@ -11,6 +11,7 @@ import com.f3rren.sentinel.model.VulnerabilityType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -33,6 +34,7 @@ import java.util.UUID;
  * {@code sentinel.scan.<module>.enabled} convention.
  */
 @Component
+@Order(0)
 @ConditionalOnProperty(prefix = "sentinel.scan.sql-injection", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class SqlInjectionScanner implements AttackModule {
 
