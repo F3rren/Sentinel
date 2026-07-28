@@ -121,6 +121,7 @@ public class SqlInjectionScanner implements AttackModule {
             if (match.isPresent()) {
                 return Optional.of(new Finding(
                         UUID.randomUUID().toString(),
+                        name(),
                         VulnerabilityType.SQL_INJECTION_ERROR_BASED,
                         Severity.CRITICAL,
                         endpoint.url(),
@@ -170,6 +171,7 @@ public class SqlInjectionScanner implements AttackModule {
                     trueResponse.statusCode(), falseResponse.statusCode());
             return Optional.of(new Finding(
                     UUID.randomUUID().toString(),
+                    name(),
                     VulnerabilityType.SQL_INJECTION_BOOLEAN_BASED,
                     Severity.HIGH,
                     endpoint.url(),

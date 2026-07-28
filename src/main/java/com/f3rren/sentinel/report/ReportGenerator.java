@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -43,9 +44,23 @@ public class ReportGenerator {
                                    int endpointsDiscovered, int endpointsTested, String openApiSpecUrl,
                                    List<Finding> findings) {
         ScanSummary summary = summarize(findings);
+        Map<String, List<Finding>> findingsByModule = groupByModule(findings);
         long durationMillis = Duration.between(startedAt, finishedAt).toMillis();
         String narrative = buildNarrative(targetUrl, durationMillis, endpointsDiscovered, endpointsTested, openApiSpecUrl, summary);
-        return new ScanReport(id, targetUrl, startedAt, finishedAt, durationMillis, endpointsDiscovered, endpointsTested, openApiSpecUrl, findings, summary, narrative);
+        return new ScanReport(id, targetUrl, startedAt, finishedAt, durationMillis, endpointsDiscovered, endpointsTested,
+                openApiSpecUrl, findings, findingsByModule, summary, narrative);
+    }
+
+    /**
+     * The flat {@code findings} list stays for simple full iteration; this is the same data
+     * organized into one section per attack module, in the order modules actually ran (a
+     * {@link LinkedHashMap} preserves first-seen order, and {@code ScanService} runs one module
+     * across every endpoint before the next starts, so findings already arrive grouped) - readable
+     * directly from the report JSON without the caller re-grouping by {@link Finding#module()}.
+     */
+    private Map<String, List<Finding>> groupByModule(List<Finding> findings) {
+        return findings.stream()
+                .collect(Collectors.groupingBy(Finding::module, LinkedHashMap::new, Collectors.toList()));
     }
 
     private ScanSummary summarize(List<Finding> findings) {

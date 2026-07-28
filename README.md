@@ -66,7 +66,8 @@ Response (example):
   "endpointsDiscovered": 3,
   "endpointsTested": 3,
   "openApiSpecUrl": null,
-  "findings": [ { "type": "SQL_INJECTION_ERROR_BASED", "severity": "CRITICAL", "...": "..." } ],
+  "findings": [ { "module": "sql-injection", "type": "SQL_INJECTION_ERROR_BASED", "severity": "CRITICAL", "...": "..." } ],
+  "findingsByModule": { "sql-injection": [ { "module": "sql-injection", "type": "SQL_INJECTION_ERROR_BASED", "severity": "CRITICAL", "...": "..." } ] },
   "summary": {
     "totalFindings": 1,
     "overallRisk": "CRITICAL",
@@ -77,6 +78,8 @@ Response (example):
   "narrative": "Investigazione su http://localhost:9090 completata in ... Rilevate 1 vulnerabilità (rischio complessivo: CRITICAL, punteggio di rischio: 40): 1 CRITICAL. Per tipologia: 1 SQL_INJECTION_ERROR_BASED."
 }
 ```
+
+Each finding also carries a `module` field (`sql-injection`, `missing-authentication`, `brute-force`, `rate-limit`) identifying which attack module produced it. `findingsByModule` is the same findings, grouped into one section per module (in the order the modules ran) - useful for a report broken down by attack type without re-grouping `findings` yourself. A module that reported nothing has no key there at all, rather than an empty array.
 
 **Retrieve a previously generated report**
 

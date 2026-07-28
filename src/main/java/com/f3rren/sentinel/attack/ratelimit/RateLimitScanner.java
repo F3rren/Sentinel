@@ -102,6 +102,7 @@ public class RateLimitScanner implements AttackModule {
     private Finding missingRateLimitingFinding(Endpoint endpoint) {
         return new Finding(
                 UUID.randomUUID().toString(),
+                name(),
                 VulnerabilityType.MISSING_RATE_LIMITING,
                 Severity.LOW,
                 endpoint.url(),

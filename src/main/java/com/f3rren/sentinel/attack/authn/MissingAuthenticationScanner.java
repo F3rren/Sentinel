@@ -84,6 +84,7 @@ public class MissingAuthenticationScanner implements AttackModule {
         Severity severity = MUTATING_METHODS.contains(endpoint.method()) ? Severity.HIGH : Severity.MEDIUM;
         Finding finding = new Finding(
                 UUID.randomUUID().toString(),
+                name(),
                 VulnerabilityType.MISSING_AUTHENTICATION,
                 severity,
                 endpoint.url(),

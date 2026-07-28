@@ -120,8 +120,34 @@ class ReportGeneratorTest {
                 .containsPattern("3 MISSING_AUTHENTICATION.*1 SQL_INJECTION_ERROR_BASED");
     }
 
+    @Test
+    void groupsFindingsByModuleInTheOrderTheyWereReported() {
+        Instant start = Instant.parse("2026-01-01T10:00:00Z");
+        Instant end = Instant.parse("2026-01-01T10:00:01Z");
+        List<Finding> findings = List.of(
+                finding("sql-injection", VulnerabilityType.SQL_INJECTION_ERROR_BASED, Severity.CRITICAL),
+                finding("missing-authentication", VulnerabilityType.MISSING_AUTHENTICATION, Severity.HIGH),
+                finding("missing-authentication", VulnerabilityType.MISSING_AUTHENTICATION, Severity.MEDIUM)
+        );
+
+        ScanReport report = reportGenerator.buildReport(
+                "scan-6", "http://localhost:8080", start, end, 3, 3, null, findings);
+
+        assertThat(report.findingsByModule()).hasSize(2);
+        assertThat(report.findingsByModule().get("sql-injection")).hasSize(1);
+        assertThat(report.findingsByModule().get("missing-authentication")).hasSize(2);
+        // A module that reported no findings at all simply has no key - not an empty list.
+        assertThat(report.findingsByModule()).doesNotContainKey("rate-limit");
+        // Insertion order (sql-injection first) must survive into the map's key order.
+        assertThat(report.findingsByModule().keySet()).containsExactly("sql-injection", "missing-authentication");
+    }
+
     private Finding finding(VulnerabilityType type, Severity severity) {
-        return new Finding("id", type, severity, "http://localhost:8080/x", HttpMethod.GET.name(),
+        return finding("some-module", type, severity);
+    }
+
+    private Finding finding(String module, VulnerabilityType type, Severity severity) {
+        return new Finding("id", module, type, severity, "http://localhost:8080/x", HttpMethod.GET.name(),
                 "param", "payload", "description", "evidence", "recommendation");
     }
 }

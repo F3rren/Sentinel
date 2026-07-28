@@ -229,6 +229,7 @@ public class BruteForceScanner implements AttackModule {
     private Finding weakCredentialsFinding(Endpoint endpoint, Credential credential, HttpResponseData response) {
         return new Finding(
                 UUID.randomUUID().toString(),
+                name(),
                 VulnerabilityType.WEAK_CREDENTIALS,
                 Severity.CRITICAL,
                 endpoint.url(),
@@ -245,6 +246,7 @@ public class BruteForceScanner implements AttackModule {
     private Finding missingProtectionFinding(Endpoint endpoint, int attemptsMade) {
         return new Finding(
                 UUID.randomUUID().toString(),
+                name(),
                 VulnerabilityType.MISSING_BRUTE_FORCE_PROTECTION,
                 Severity.LOW,
                 endpoint.url(),
