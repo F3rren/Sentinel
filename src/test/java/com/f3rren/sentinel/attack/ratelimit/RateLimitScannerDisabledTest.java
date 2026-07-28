@@ -1,6 +1,7 @@
-package com.f3rren.sentinel.attack;
+package com.f3rren.sentinel.attack.ratelimit;
 
 import com.f3rren.sentinel.SentinelApplication;
+import com.f3rren.sentinel.attack.bruteforce.BruteForceScanner;
 import com.f3rren.sentinel.scan.ScanService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,18 +12,12 @@ import org.springframework.test.context.TestPropertySource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * ScanService depends on List&lt;AttackModule&gt;, which must not be a hard requirement:
- * disabling every module (a legitimate, if unusual, configuration) must not prevent the app
- * from starting.
+ * Mirrors the other per-module disabled tests: disabling rate-limit must not affect the
+ * other modules.
  */
 @SpringBootTest(classes = SentinelApplication.class, webEnvironment = SpringBootTest.WebEnvironment.NONE)
-@TestPropertySource(properties = {
-        "sentinel.scan.sql-injection.enabled=false",
-        "sentinel.scan.missing-authentication.enabled=false",
-        "sentinel.scan.brute-force.enabled=false",
-        "sentinel.scan.rate-limit.enabled=false"
-})
-class AllAttackModulesDisabledTest {
+@TestPropertySource(properties = "sentinel.scan.rate-limit.enabled=false")
+class RateLimitScannerDisabledTest {
 
     @Autowired
     private ApplicationContext applicationContext;
@@ -31,8 +26,9 @@ class AllAttackModulesDisabledTest {
     private ScanService scanService;
 
     @Test
-    void appStartsCleanlyWithZeroAttackModules() {
-        assertThat(applicationContext.getBeanNamesForType(AttackModule.class)).isEmpty();
+    void onlyThisModuleIsNotRegisteredWhenDisabled() {
+        assertThat(applicationContext.getBeanNamesForType(RateLimitScanner.class)).isEmpty();
+        assertThat(applicationContext.getBeanNamesForType(BruteForceScanner.class)).isNotEmpty();
         assertThat(scanService).isNotNull();
     }
 }
