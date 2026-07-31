@@ -1,5 +1,7 @@
 package com.f3rren.sentinel.http;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
@@ -22,6 +24,8 @@ import java.util.stream.Collectors;
  */
 @Component
 public class SentinelHttpClient {
+
+    private static final Logger log = LoggerFactory.getLogger(SentinelHttpClient.class);
 
     private static final Set<HttpMethod> BODY_METHODS = Set.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH);
 
@@ -116,8 +120,21 @@ public class SentinelHttpClient {
 
     private HttpResponseData send(HttpRequest request) throws IOException, InterruptedException {
         long start = System.currentTimeMillis();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (IOException | InterruptedException e) {
+            log.debug("{} {} -> FAILED ({}) after {}ms", request.method(), request.uri(),
+                    e.getMessage(), System.currentTimeMillis() - start);
+            throw e;
+        }
         long elapsed = System.currentTimeMillis() - start;
+        // DEBUG, not INFO: a scan issues thousands of these, and every attack module already
+        // decides for itself what's interesting enough to become a Finding. This is purely for
+        // the "why did the report come back empty" case where per-request status codes are the
+        // only thing that answers it, without needing to cross-reference the target's own logs.
+        log.debug("{} {} -> {} ({}ms, {} bytes)", request.method(), request.uri(),
+                response.statusCode(), elapsed, response.body() == null ? 0 : response.body().length());
         return new HttpResponseData(response.statusCode(), response.body(), elapsed);
     }
 
