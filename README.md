@@ -72,6 +72,7 @@ Response (example):
     "totalFindings": 1,
     "overallRisk": "CRITICAL",
     "riskScore": 40,
+    "possiblyRateLimited": false,
     "countsBySeverity": { "...": 0 },
     "countsByType": { "SQL_INJECTION_ERROR_BASED": 1, "SQL_INJECTION_BOOLEAN_BASED": 0, "MISSING_AUTHENTICATION": 0 }
   },
@@ -80,6 +81,8 @@ Response (example):
 ```
 
 Each finding also carries a `module` field (`sql-injection`, `missing-authentication`, `brute-force`, `rate-limit`) identifying which attack module produced it. `findingsByModule` is the same findings, grouped into one section per module (in the order the modules ran) - useful for a report broken down by attack type without re-grouping `findings` yourself. A module that reported nothing has no key there at all, rather than an empty array.
+
+**`summary.possiblyRateLimited`**: a single module fuzzing many parameters across many endpoints (e.g. the SQL injection module trying several payloads per query parameter) can, by itself, generate enough requests to trip a real target's rate limiter well before the rest of the scan runs - every module tested afterwards then sees 429/423 instead of a real response, and an "all clean" report can actually mean "mostly untested," not "actually secure." Sentinel tracks the fraction of throttled responses across the whole scan; once at least 10 requests were made and 15% or more came back throttled, `possiblyRateLimited` is set to `true` and the `narrative` gets an explicit caveat (in Italian, prefixed `ATTENZIONE:`) naming the exact ratio - read findings from a flagged scan as "no vulnerabilities found among the parts of the target that responded normally," not as a clean bill of health.
 
 **Retrieve a previously generated report**
 

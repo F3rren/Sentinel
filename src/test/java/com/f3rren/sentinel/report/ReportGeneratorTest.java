@@ -1,5 +1,6 @@
 package com.f3rren.sentinel.report;
 
+import com.f3rren.sentinel.http.RequestStats;
 import com.f3rren.sentinel.model.Finding;
 import com.f3rren.sentinel.model.ScanReport;
 import com.f3rren.sentinel.model.Severity;
@@ -15,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ReportGeneratorTest {
 
     private final ReportGenerator reportGenerator = new ReportGenerator();
+    private static final RequestStats NO_THROTTLING = new RequestStats(0, 0);
 
     @Test
     void summarizesNoFindingsAsInfoRiskWithHtmlCrawlNarrative() {
@@ -22,7 +24,7 @@ class ReportGeneratorTest {
         Instant end = Instant.parse("2026-01-01T10:00:00.500Z");
 
         ScanReport report = reportGenerator.buildReport(
-                "scan-1", "http://localhost:8080", start, end, 3, 3, null, List.of());
+                "scan-1", "http://localhost:8080", start, end, 3, 3, null, List.of(), NO_THROTTLING);
 
         assertThat(report.summary().totalFindings()).isEqualTo(0);
         assertThat(report.summary().overallRisk()).isEqualTo(Severity.INFO);
@@ -45,7 +47,7 @@ class ReportGeneratorTest {
         Instant end = Instant.parse("2026-01-01T10:00:00.500Z");
 
         ScanReport report = reportGenerator.buildReport(
-                "scan-4", "http://api-gateway:8080", start, end, 46, 12, null, List.of());
+                "scan-4", "http://api-gateway:8080", start, end, 46, 12, null, List.of(), NO_THROTTLING);
 
         assertThat(report.endpointsDiscovered()).isEqualTo(46);
         assertThat(report.endpointsTested()).isEqualTo(12);
@@ -61,7 +63,7 @@ class ReportGeneratorTest {
 
         ScanReport report = reportGenerator.buildReport(
                 "scan-2", "http://api-gateway:8080", start, end, 46, 46,
-                "http://api-gateway:8080/v3/api-docs/swagger-config", List.of());
+                "http://api-gateway:8080/v3/api-docs/swagger-config", List.of(), NO_THROTTLING);
 
         assertThat(report.narrative())
                 .contains("8,1 secondi")
@@ -81,7 +83,7 @@ class ReportGeneratorTest {
         );
 
         ScanReport report = reportGenerator.buildReport(
-                "scan-3", "http://localhost:8080", start, end, 5, 5, null, findings);
+                "scan-3", "http://localhost:8080", start, end, 5, 5, null, findings, NO_THROTTLING);
 
         assertThat(report.summary().totalFindings()).isEqualTo(3);
         assertThat(report.summary().overallRisk()).isEqualTo(Severity.CRITICAL);
@@ -109,7 +111,7 @@ class ReportGeneratorTest {
         );
 
         ScanReport report = reportGenerator.buildReport(
-                "scan-5", "http://localhost:8080", start, end, 4, 4, null, findings);
+                "scan-5", "http://localhost:8080", start, end, 4, 4, null, findings, NO_THROTTLING);
 
         assertThat(report.summary().countsByType().get(VulnerabilityType.MISSING_AUTHENTICATION)).isEqualTo(3);
         assertThat(report.summary().countsByType().get(VulnerabilityType.SQL_INJECTION_ERROR_BASED)).isEqualTo(1);
@@ -131,7 +133,7 @@ class ReportGeneratorTest {
         );
 
         ScanReport report = reportGenerator.buildReport(
-                "scan-6", "http://localhost:8080", start, end, 3, 3, null, findings);
+                "scan-6", "http://localhost:8080", start, end, 3, 3, null, findings, NO_THROTTLING);
 
         assertThat(report.findingsByModule()).hasSize(2);
         assertThat(report.findingsByModule().get("sql-injection")).hasSize(1);
@@ -140,6 +142,49 @@ class ReportGeneratorTest {
         assertThat(report.findingsByModule()).doesNotContainKey("rate-limit");
         // Insertion order (sql-injection first) must survive into the map's key order.
         assertThat(report.findingsByModule().keySet()).containsExactly("sql-injection", "missing-authentication");
+    }
+
+    @Test
+    void flagsPossiblyRateLimitedAndAddsCaveatWhenThrottleRatioIsHigh() {
+        Instant start = Instant.parse("2026-01-01T10:00:00Z");
+        Instant end = Instant.parse("2026-01-01T10:00:01Z");
+
+        ScanReport report = reportGenerator.buildReport(
+                "scan-7", "http://api-gateway:8080", start, end, 46, 46, null, List.of(),
+                new RequestStats(100, 40));
+
+        assertThat(report.summary().possiblyRateLimited()).isTrue();
+        assertThat(report.narrative())
+                .contains("ATTENZIONE")
+                .contains("40%")
+                .contains("40 su 100");
+    }
+
+    @Test
+    void doesNotFlagPossiblyRateLimitedWhenThrottleRatioIsLow() {
+        Instant start = Instant.parse("2026-01-01T10:00:00Z");
+        Instant end = Instant.parse("2026-01-01T10:00:01Z");
+
+        ScanReport report = reportGenerator.buildReport(
+                "scan-8", "http://api-gateway:8080", start, end, 46, 46, null, List.of(),
+                new RequestStats(200, 5));
+
+        assertThat(report.summary().possiblyRateLimited()).isFalse();
+        assertThat(report.narrative()).doesNotContain("ATTENZIONE");
+    }
+
+    @Test
+    void doesNotFlagPossiblyRateLimitedWhenTooFewRequestsToBeMeaningful() {
+        Instant start = Instant.parse("2026-01-01T10:00:00Z");
+        Instant end = Instant.parse("2026-01-01T10:00:01Z");
+
+        // 2 out of 3 throttled is a high ratio, but too small a sample to trust.
+        ScanReport report = reportGenerator.buildReport(
+                "scan-9", "http://api-gateway:8080", start, end, 3, 3, null, List.of(),
+                new RequestStats(3, 2));
+
+        assertThat(report.summary().possiblyRateLimited()).isFalse();
+        assertThat(report.narrative()).doesNotContain("ATTENZIONE");
     }
 
     private Finding finding(VulnerabilityType type, Severity severity) {

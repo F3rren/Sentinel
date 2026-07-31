@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -29,9 +30,14 @@ public class SentinelHttpClient {
 
     private static final Set<HttpMethod> BODY_METHODS = Set.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH);
 
+    /** Statuses a well-behaved rate limiter answers with once it starts throttling a client. */
+    public static final Set<Integer> THROTTLE_STATUS_CODES = Set.of(429, 423);
+
     private final HttpClient httpClient;
     private final String userAgent;
     private final Duration requestTimeout;
+    private final AtomicInteger totalRequests = new AtomicInteger();
+    private final AtomicInteger throttledResponses = new AtomicInteger();
 
     public SentinelHttpClient(
             @Value("${sentinel.scan.user-agent:Sentinel-Scanner/0.1 (+authorized-security-testing)}") String userAgent,
@@ -44,6 +50,24 @@ public class SentinelHttpClient {
                 .connectTimeout(Duration.ofMillis(connectTimeoutMs))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
+    }
+
+    /**
+     * Clears the request/throttle counters {@link #requestStats()} reports. Called at the start
+     * of a scan's attack phase so the resulting stats reflect only that scan's own traffic, not
+     * discovery calls or any earlier scan.
+     */
+    public void resetRequestStats() {
+        totalRequests.set(0);
+        throttledResponses.set(0);
+    }
+
+    /**
+     * How many requests have gone out, and how many came back throttled, since the last
+     * {@link #resetRequestStats()}.
+     */
+    public RequestStats requestStats() {
+        return new RequestStats(totalRequests.get(), throttledResponses.get());
     }
 
     public HttpResponseData get(String url) throws IOException, InterruptedException {
@@ -135,6 +159,10 @@ public class SentinelHttpClient {
         // only thing that answers it, without needing to cross-reference the target's own logs.
         log.debug("{} {} -> {} ({}ms, {} bytes)", request.method(), request.uri(),
                 response.statusCode(), elapsed, response.body() == null ? 0 : response.body().length());
+        totalRequests.incrementAndGet();
+        if (THROTTLE_STATUS_CODES.contains(response.statusCode())) {
+            throttledResponses.incrementAndGet();
+        }
         return new HttpResponseData(response.statusCode(), response.body(), elapsed);
     }
 

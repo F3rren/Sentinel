@@ -1,5 +1,6 @@
 package com.f3rren.sentinel.report;
 
+import com.f3rren.sentinel.http.RequestStats;
 import com.f3rren.sentinel.model.Finding;
 import com.f3rren.sentinel.model.ScanReport;
 import com.f3rren.sentinel.model.ScanSummary;
@@ -40,13 +41,24 @@ public class ReportGenerator {
             Severity.CRITICAL, 40
     );
 
+    // Below this many requests, a handful of 429s could just be noise (a couple of endpoints
+    // genuinely rate-limited on purpose) rather than the target throttling the whole scan - not
+    // worth a caveat on a report that barely made any requests to begin with.
+    private static final int MIN_REQUESTS_FOR_RATE_LIMIT_CHECK = 10;
+    // Above this fraction of throttled responses, treat the scan as compromised enough that
+    // findings elsewhere in the report can't be trusted at face value.
+    private static final double RATE_LIMIT_THROTTLE_RATIO_THRESHOLD = 0.15;
+
     public ScanReport buildReport(String id, String targetUrl, Instant startedAt, Instant finishedAt,
                                    int endpointsDiscovered, int endpointsTested, String openApiSpecUrl,
-                                   List<Finding> findings) {
-        ScanSummary summary = summarize(findings);
+                                   List<Finding> findings, RequestStats requestStats) {
+        boolean possiblyRateLimited = requestStats.total() >= MIN_REQUESTS_FOR_RATE_LIMIT_CHECK
+                && requestStats.throttledRatio() >= RATE_LIMIT_THROTTLE_RATIO_THRESHOLD;
+        ScanSummary summary = summarize(findings, possiblyRateLimited);
         Map<String, List<Finding>> findingsByModule = groupByModule(findings);
         long durationMillis = Duration.between(startedAt, finishedAt).toMillis();
-        String narrative = buildNarrative(targetUrl, durationMillis, endpointsDiscovered, endpointsTested, openApiSpecUrl, summary);
+        String narrative = buildNarrative(targetUrl, durationMillis, endpointsDiscovered, endpointsTested,
+                openApiSpecUrl, summary, requestStats);
         return new ScanReport(id, targetUrl, startedAt, finishedAt, durationMillis, endpointsDiscovered, endpointsTested,
                 openApiSpecUrl, findings, findingsByModule, summary, narrative);
     }
@@ -63,7 +75,7 @@ public class ReportGenerator {
                 .collect(Collectors.groupingBy(Finding::module, LinkedHashMap::new, Collectors.toList()));
     }
 
-    private ScanSummary summarize(List<Finding> findings) {
+    private ScanSummary summarize(List<Finding> findings, boolean possiblyRateLimited) {
         Map<Severity, Integer> countsBySeverity = new EnumMap<>(Severity.class);
         for (Severity severity : Severity.values()) {
             countsBySeverity.put(severity, 0);
@@ -84,11 +96,12 @@ public class ReportGenerator {
                 .map(Finding::severity)
                 .max(Comparator.naturalOrder())
                 .orElse(Severity.INFO);
-        return new ScanSummary(findings.size(), countsBySeverity, countsByType, overallRisk, riskScore);
+        return new ScanSummary(findings.size(), countsBySeverity, countsByType, overallRisk, riskScore, possiblyRateLimited);
     }
 
     private String buildNarrative(String targetUrl, long durationMillis, int endpointsDiscovered,
-                                   int endpointsTested, String openApiSpecUrl, ScanSummary summary) {
+                                   int endpointsTested, String openApiSpecUrl, ScanSummary summary,
+                                   RequestStats requestStats) {
         StringBuilder narrative = new StringBuilder();
         narrative.append("Investigazione su ").append(targetUrl)
                 .append(" completata in ").append(formatDuration(durationMillis)).append(". ");
@@ -125,6 +138,17 @@ public class ReportGenerator {
                     .map(entry -> entry.getValue() + " " + entry.getKey())
                     .collect(Collectors.joining(", "));
             narrative.append("Per tipologia: ").append(typeBreakdown).append(".");
+        }
+
+        if (summary.possiblyRateLimited()) {
+            narrative.append(" ATTENZIONE: il ")
+                    .append(Math.round(requestStats.throttledRatio() * 100))
+                    .append("% delle richieste (").append(requestStats.throttled()).append(" su ")
+                    .append(requestStats.total())
+                    .append(") ha ricevuto una risposta di throttling (429/423) durante la scansione stessa - "
+                            + "il target ha iniziato a limitare Sentinel prima che tutti gli endpoint potessero "
+                            + "essere testati in modo affidabile. Il risultato sopra e' parziale: l'assenza di "
+                            + "vulnerabilita' non e' garantita per gli endpoint testati dopo l'inizio del throttling.");
         }
         return narrative.toString();
     }

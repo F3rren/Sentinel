@@ -4,6 +4,8 @@ import com.f3rren.sentinel.attack.AttackModule;
 import com.f3rren.sentinel.discovery.EndpointDiscoveryService;
 import com.f3rren.sentinel.discovery.openapi.OpenApiDiscoveryResult;
 import com.f3rren.sentinel.discovery.openapi.OpenApiDiscoveryService;
+import com.f3rren.sentinel.http.RequestStats;
+import com.f3rren.sentinel.http.SentinelHttpClient;
 import com.f3rren.sentinel.model.Endpoint;
 import com.f3rren.sentinel.model.Finding;
 import com.f3rren.sentinel.model.ScanReport;
@@ -49,6 +51,7 @@ public class ScanService {
     private final List<AttackModule> attackModules;
     private final ReportGenerator reportGenerator;
     private final ReportFileWriter reportFileWriter;
+    private final SentinelHttpClient httpClient;
     private final int maxEndpoints;
     private final Set<HttpMethod> allowedHttpMethods;
     private final Map<String, ScanReport> reports = new ConcurrentHashMap<>();
@@ -63,6 +66,7 @@ public class ScanService {
             @Autowired(required = false) List<AttackModule> attackModules,
             ReportGenerator reportGenerator,
             ReportFileWriter reportFileWriter,
+            SentinelHttpClient httpClient,
             @Value("${sentinel.scan.max-endpoints:25}") int maxEndpoints,
             @Value("${sentinel.scan.allowed-http-methods:GET,POST,PUT,PATCH,DELETE}") String allowedHttpMethodsRaw
     ) {
@@ -71,6 +75,7 @@ public class ScanService {
         this.attackModules = attackModules != null ? attackModules : List.of();
         this.reportGenerator = reportGenerator;
         this.reportFileWriter = reportFileWriter;
+        this.httpClient = httpClient;
         this.maxEndpoints = maxEndpoints;
         this.allowedHttpMethods = parseAllowedMethods(allowedHttpMethodsRaw);
     }
@@ -147,6 +152,13 @@ public class ScanService {
         // through a rate-limit bucket) run last - endpoint-outer nesting would interleave a
         // budget-burning module's bursts between every other module's single requests, starving
         // them of a clean response on later endpoints purely as a side effect of scan order.
+        //
+        // Even with that ordering, a single module fuzzing many parameters across many endpoints
+        // (e.g. the SQLi module trying ~10 payloads per query parameter) can by itself exceed a
+        // real target's rate limit before any other module gets a turn - the reset here, paired
+        // with the stats read below, is what lets the report flag that instead of silently
+        // reporting a "clean" scan that was actually mostly throttled.
+        httpClient.resetRequestStats();
         List<Finding> findings = new ArrayList<>();
         for (AttackModule module : attackModules) {
             for (Endpoint endpoint : endpointsToScan) {
@@ -157,11 +169,12 @@ public class ScanService {
                 }
             }
         }
+        RequestStats requestStats = httpClient.requestStats();
 
         Instant finishedAt = Instant.now();
         String id = UUID.randomUUID().toString();
         ScanReport report = reportGenerator.buildReport(id, targetUrl, startedAt, finishedAt,
-                endpoints.size(), endpointsToScan.size(), openApiSpecUrl, findings);
+                endpoints.size(), endpointsToScan.size(), openApiSpecUrl, findings, requestStats);
         reports.put(id, report);
         latestReportId.set(id);
         reportFileWriter.write(report);

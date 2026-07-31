@@ -36,6 +36,7 @@ class SentinelHttpClientTest {
     void startServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/echo", this::echoHandler);
+        server.createContext("/throttled", exchange -> respondWithStatus(exchange, 429));
         server.start();
         baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
         httpClient = new SentinelHttpClient("Sentinel-Test/1.0", 5000, 3000);
@@ -139,6 +140,36 @@ class SentinelHttpClientTest {
         assertThat(lastMethod).isEqualTo("GET");
         assertThat(lastQuery).isEqualTo("id=1");
         assertThat(lastBody).isEmpty();
+    }
+
+    @Test
+    void requestStatsCountTotalAndThrottledResponsesSeparately() throws Exception {
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/echo", Map.of());
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/throttled", Map.of());
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/throttled", Map.of());
+
+        RequestStats stats = httpClient.requestStats();
+
+        assertThat(stats.total()).isEqualTo(3);
+        assertThat(stats.throttled()).isEqualTo(2);
+        assertThat(stats.throttledRatio()).isCloseTo(2.0 / 3, org.assertj.core.data.Offset.offset(0.0001));
+    }
+
+    @Test
+    void resetRequestStatsClearsCounters() throws Exception {
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/throttled", Map.of());
+
+        httpClient.resetRequestStats();
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/echo", Map.of());
+
+        RequestStats stats = httpClient.requestStats();
+        assertThat(stats.total()).isEqualTo(1);
+        assertThat(stats.throttled()).isZero();
+    }
+
+    private void respondWithStatus(HttpExchange exchange, int status) throws IOException {
+        exchange.sendResponseHeaders(status, -1);
+        exchange.getResponseBody().close();
     }
 
     private void echoHandler(HttpExchange exchange) throws IOException {

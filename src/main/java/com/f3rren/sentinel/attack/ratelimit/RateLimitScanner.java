@@ -19,7 +19,6 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -49,8 +48,6 @@ import java.util.UUID;
 public class RateLimitScanner implements AttackModule {
 
     private static final Logger log = LoggerFactory.getLogger(RateLimitScanner.class);
-
-    private static final Set<Integer> THROTTLE_STATUS_CODES = Set.of(429, 423);
 
     private static final String RECOMMENDATION =
             "Implementare un meccanismo di rate-limiting (es. token bucket per IP/utente/API key) "
@@ -90,7 +87,7 @@ public class RateLimitScanner implements AttackModule {
                 log.warn("Rate-limit burst request failed for {} {}: {}", endpoint.method(), endpoint.url(), e.getMessage());
                 return List.of();
             }
-            if (THROTTLE_STATUS_CODES.contains(response.statusCode())) {
+            if (SentinelHttpClient.THROTTLE_STATUS_CODES.contains(response.statusCode())) {
                 // Rate limiting is present and reacted within the burst: nothing to report.
                 return List.of();
             }
