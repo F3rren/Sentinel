@@ -98,13 +98,13 @@ public class ScanService {
                 continue;
             }
             if (!KNOWN_METHOD_NAMES.contains(candidate)) {
-                log.warn("Ignoro metodo HTTP sconosciuto in sentinel.scan.allowed-http-methods: '{}'", candidate);
+                log.warn("Ignoring unknown HTTP method in sentinel.scan.allowed-http-methods: '{}'", candidate);
                 continue;
             }
             methods.add(HttpMethod.valueOf(candidate));
         }
         if (methods.isEmpty()) {
-            log.warn("sentinel.scan.allowed-http-methods='{}' non contiene alcun metodo valido: uso il default ({}).",
+            log.warn("sentinel.scan.allowed-http-methods='{}' contains no valid method: using the default ({}).",
                     raw, DEFAULT_ALLOWED_METHODS);
             return DEFAULT_ALLOWED_METHODS;
         }
@@ -142,7 +142,7 @@ public class ScanService {
         // Discovery and filtering happen in several steps before anything is attacked; when an
         // endpoint that should exist doesn't produce a finding, this is the only way to tell
         // whether it ever made it this far at all, as opposed to being dropped earlier.
-        log.info("Endpoint da attaccare ({}): {}", endpointsToScan.size(), endpointsToScan.stream()
+        log.info("Endpoints to attack ({}): {}", endpointsToScan.size(), endpointsToScan.stream()
                 .map(e -> e.method() + " " + e.url())
                 .toList());
 
@@ -203,7 +203,7 @@ public class ScanService {
 
     public String normalizeTargetUrl(String rawTargetUrl) {
         if (rawTargetUrl == null || rawTargetUrl.isBlank()) {
-            throw new InvalidTargetException("targetUrl non puo' essere vuoto");
+            throw new InvalidTargetException("targetUrl must not be empty");
         }
         String candidate = rawTargetUrl.trim();
         if (!candidate.startsWith("http://") && !candidate.startsWith("https://")) {
@@ -213,10 +213,10 @@ public class ScanService {
         try {
             uri = URI.create(candidate);
         } catch (IllegalArgumentException e) {
-            throw new InvalidTargetException("targetUrl non valido: " + rawTargetUrl);
+            throw new InvalidTargetException("Invalid targetUrl: " + rawTargetUrl);
         }
         if (uri.getHost() == null || uri.getHost().isBlank()) {
-            throw new InvalidTargetException("targetUrl non valido, host mancante: " + rawTargetUrl);
+            throw new InvalidTargetException("Invalid targetUrl, missing host: " + rawTargetUrl);
         }
         return candidate;
     }

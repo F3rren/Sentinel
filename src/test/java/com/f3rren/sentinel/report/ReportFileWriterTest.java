@@ -67,6 +67,6 @@ class ReportFileWriterTest {
         return new ScanReport("report-id", "http://localhost:8080", now, now, 42, 1, 1, null,
                 List.of(), Map.of(), new ScanSummary(0, Map.of(Severity.INFO, 0),
                         Map.of(VulnerabilityType.SQL_INJECTION_ERROR_BASED, 0), Severity.INFO, 0, false),
-                "narrativa di prova");
+                "test narrative");
     }
 }

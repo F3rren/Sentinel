@@ -103,33 +103,33 @@ public class ReportGenerator {
                                    int endpointsTested, String openApiSpecUrl, ScanSummary summary,
                                    RequestStats requestStats) {
         StringBuilder narrative = new StringBuilder();
-        narrative.append("Investigazione su ").append(targetUrl)
-                .append(" completata in ").append(formatDuration(durationMillis)).append(". ");
+        narrative.append("Investigation of ").append(targetUrl)
+                .append(" completed in ").append(formatDuration(durationMillis)).append(". ");
 
         if (openApiSpecUrl != null) {
-            narrative.append("Endpoint individuati tramite spec OpenAPI/Swagger (").append(openApiSpecUrl)
+            narrative.append("Endpoints discovered via OpenAPI/Swagger spec (").append(openApiSpecUrl)
                     .append("): ").append(endpointsDiscovered).append(". ");
         } else {
-            narrative.append("Endpoint individuati tramite scansione della pagina HTML del target: ")
+            narrative.append("Endpoints discovered via HTML page scan of the target: ")
                     .append(endpointsDiscovered).append(". ");
         }
 
         if (endpointsTested < endpointsDiscovered) {
-            narrative.append("Testati effettivamente ").append(endpointsTested)
-                    .append(" (filtro sui metodi HTTP e/o limite massimo endpoint configurati). ");
+            narrative.append("Actually tested ").append(endpointsTested)
+                    .append(" (configured HTTP method filter and/or max-endpoint limit). ");
         }
 
         if (summary.totalFindings() == 0) {
-            narrative.append("Nessuna vulnerabilità rilevata.");
+            narrative.append("No vulnerabilities detected.");
         } else {
             String severityBreakdown = summary.countsBySeverity().entrySet().stream()
                     .filter(entry -> entry.getValue() > 0)
                     .sorted(Comparator.comparingInt((Map.Entry<Severity, Integer> entry) -> entry.getKey().ordinal()).reversed())
                     .map(entry -> entry.getValue() + " " + entry.getKey())
                     .collect(Collectors.joining(", "));
-            narrative.append("Rilevate ").append(summary.totalFindings())
-                    .append(" vulnerabilità (rischio complessivo: ").append(summary.overallRisk())
-                    .append(", punteggio di rischio: ").append(summary.riskScore())
+            narrative.append("Detected ").append(summary.totalFindings())
+                    .append(" vulnerabilities (overall risk: ").append(summary.overallRisk())
+                    .append(", risk score: ").append(summary.riskScore())
                     .append("): ").append(severityBreakdown).append(". ");
 
             String typeBreakdown = summary.countsByType().entrySet().stream()
@@ -137,18 +137,18 @@ public class ReportGenerator {
                     .sorted(Comparator.comparingInt((Map.Entry<VulnerabilityType, Integer> entry) -> entry.getValue()).reversed())
                     .map(entry -> entry.getValue() + " " + entry.getKey())
                     .collect(Collectors.joining(", "));
-            narrative.append("Per tipologia: ").append(typeBreakdown).append(".");
+            narrative.append("By type: ").append(typeBreakdown).append(".");
         }
 
         if (summary.possiblyRateLimited()) {
-            narrative.append(" ATTENZIONE: il ")
+            narrative.append(" WARNING: ")
                     .append(Math.round(requestStats.throttledRatio() * 100))
-                    .append("% delle richieste (").append(requestStats.throttled()).append(" su ")
+                    .append("% of requests (").append(requestStats.throttled()).append(" out of ")
                     .append(requestStats.total())
-                    .append(") ha ricevuto una risposta di throttling (429/423) durante la scansione stessa - "
-                            + "il target ha iniziato a limitare Sentinel prima che tutti gli endpoint potessero "
-                            + "essere testati in modo affidabile. Il risultato sopra e' parziale: l'assenza di "
-                            + "vulnerabilita' non e' garantita per gli endpoint testati dopo l'inizio del throttling.");
+                    .append(") received a throttling response (429/423) during the scan itself - "
+                            + "the target started limiting Sentinel before every endpoint could be "
+                            + "tested reliably. The result above is partial: the absence of "
+                            + "vulnerabilities is not guaranteed for endpoints tested after throttling began.");
         }
         return narrative.toString();
     }
@@ -157,6 +157,6 @@ public class ReportGenerator {
         if (durationMillis < 1000) {
             return durationMillis + " ms";
         }
-        return String.format(Locale.ITALIAN, "%.1f secondi", durationMillis / 1000.0);
+        return String.format(Locale.US, "%.1f seconds", durationMillis / 1000.0);
     }
 }

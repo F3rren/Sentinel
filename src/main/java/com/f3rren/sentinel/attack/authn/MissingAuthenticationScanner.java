@@ -46,10 +46,10 @@ public class MissingAuthenticationScanner implements AttackModule {
             Set.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH, HttpMethod.DELETE);
 
     private static final String RECOMMENDATION =
-            "Richiedere autenticazione (es. OAuth2/JWT) su questo endpoint e verificare che l'identità "
-            + "autenticata sia autorizzata sulla risorsa specifica richiesta (controllo di ownership), non "
-            + "solo che sia genericamente loggata. Applicare la stessa policy in modo coerente su tutti i "
-            + "servizi dietro il gateway, non solo su quelli più visibili.";
+            "Require authentication (e.g. OAuth2/JWT) on this endpoint and verify that the authenticated "
+            + "identity is authorized on the specific resource requested (ownership check), not just that "
+            + "it is generically logged in. Apply the same policy consistently across every service "
+            + "behind the gateway, not only the most visible ones.";
 
     private final SentinelHttpClient httpClient;
 
@@ -91,9 +91,9 @@ public class MissingAuthenticationScanner implements AttackModule {
                 endpoint.method().name(),
                 "",
                 "",
-                "L'endpoint ha risposto con successo a una richiesta priva di qualunque credenziale.",
-                "Status " + response.statusCode() + " su " + endpoint.method() + " " + endpoint.url()
-                        + " senza header di autenticazione.",
+                "The endpoint responded successfully to a request carrying no credentials at all.",
+                "Status " + response.statusCode() + " on " + endpoint.method() + " " + endpoint.url()
+                        + " without an authentication header.",
                 RECOMMENDATION
         );
         return List.of(finding);

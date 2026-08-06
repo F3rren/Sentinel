@@ -50,9 +50,9 @@ public class RateLimitScanner implements AttackModule {
     private static final Logger log = LoggerFactory.getLogger(RateLimitScanner.class);
 
     private static final String RECOMMENDATION =
-            "Implementare un meccanismo di rate-limiting (es. token bucket per IP/utente/API key) "
-            + "su questo endpoint, per prevenire abusi come scraping massivo, esaurimento di "
-            + "risorse (DoS applicativo) o uso ripetuto e automatizzato della logica di business.";
+            "Implement a rate-limiting mechanism (e.g. a token bucket per IP/user/API key) on this "
+            + "endpoint to prevent abuse such as mass scraping, resource exhaustion (application-level "
+            + "DoS), or repeated automated use of the business logic.";
 
     private final SentinelHttpClient httpClient;
     private final int burstSize;
@@ -106,10 +106,10 @@ public class RateLimitScanner implements AttackModule {
                 endpoint.method().name(),
                 "",
                 "",
-                "L'endpoint non ha mai risposto con un blocco/limite dopo richieste ravvicinate ripetute.",
-                burstSize + " richieste consecutive senza mai ricevere uno status 429 (Too Many Requests) "
-                        + "o 423 (Locked). Un numero di richieste più alto o una finestra temporale diversa "
-                        + "potrebbero comunque attivare una protezione non ancora raggiunta da questo campione.",
+                "The endpoint never responded with a block/limit after repeated rapid requests.",
+                burstSize + " consecutive requests without ever receiving a 429 (Too Many Requests) "
+                        + "or 423 (Locked) status. A higher number of requests or a different time window "
+                        + "could still trigger a protection not yet reached by this sample.",
                 RECOMMENDATION
         );
     }

@@ -34,11 +34,11 @@ class ReportGeneratorTest {
         assertThat(report.narrative())
                 .contains("http://localhost:8080")
                 .contains("500 ms")
-                .contains("scansione della pagina HTML")
+                .contains("HTML page scan")
                 .contains("3")
-                .contains("Nessuna vulnerabilità rilevata.")
+                .contains("No vulnerabilities detected.")
                 // all 3 discovered were also tested: no extra "tested" clause expected.
-                .doesNotContain("Testati effettivamente");
+                .doesNotContain("Actually tested");
     }
 
     @Test
@@ -53,7 +53,7 @@ class ReportGeneratorTest {
         assertThat(report.endpointsTested()).isEqualTo(12);
         assertThat(report.narrative())
                 .contains("46")
-                .contains("Testati effettivamente 12");
+                .contains("Actually tested 12");
     }
 
     @Test
@@ -66,8 +66,8 @@ class ReportGeneratorTest {
                 "http://api-gateway:8080/v3/api-docs/swagger-config", List.of(), NO_THROTTLING);
 
         assertThat(report.narrative())
-                .contains("8,1 secondi")
-                .contains("spec OpenAPI/Swagger")
+                .contains("8.1 seconds")
+                .contains("OpenAPI/Swagger spec")
                 .contains("http://api-gateway:8080/v3/api-docs/swagger-config")
                 .contains("46");
     }
@@ -92,9 +92,9 @@ class ReportGeneratorTest {
         // 2 CRITICAL (weight 40 each) + 1 HIGH (weight 20) = 100.
         assertThat(report.summary().riskScore()).isEqualTo(100);
         assertThat(report.narrative())
-                .contains("Rilevate 3 vulnerabilità")
-                .contains("rischio complessivo: CRITICAL")
-                .contains("punteggio di rischio: 100")
+                .contains("Detected 3 vulnerabilities")
+                .contains("overall risk: CRITICAL")
+                .contains("risk score: 100")
                 // CRITICAL must be listed before HIGH: most severe first.
                 .containsPattern("2 CRITICAL.*1 HIGH");
     }
@@ -117,7 +117,7 @@ class ReportGeneratorTest {
         assertThat(report.summary().countsByType().get(VulnerabilityType.SQL_INJECTION_ERROR_BASED)).isEqualTo(1);
         assertThat(report.summary().countsByType().get(VulnerabilityType.SQL_INJECTION_BOOLEAN_BASED)).isEqualTo(0);
         assertThat(report.narrative())
-                .contains("Per tipologia:")
+                .contains("By type:")
                 // most frequent type listed first.
                 .containsPattern("3 MISSING_AUTHENTICATION.*1 SQL_INJECTION_ERROR_BASED");
     }
@@ -155,9 +155,9 @@ class ReportGeneratorTest {
 
         assertThat(report.summary().possiblyRateLimited()).isTrue();
         assertThat(report.narrative())
-                .contains("ATTENZIONE")
+                .contains("WARNING")
                 .contains("40%")
-                .contains("40 su 100");
+                .contains("40 out of 100");
     }
 
     @Test
@@ -170,7 +170,7 @@ class ReportGeneratorTest {
                 new RequestStats(200, 5));
 
         assertThat(report.summary().possiblyRateLimited()).isFalse();
-        assertThat(report.narrative()).doesNotContain("ATTENZIONE");
+        assertThat(report.narrative()).doesNotContain("WARNING");
     }
 
     @Test
@@ -184,7 +184,7 @@ class ReportGeneratorTest {
                 new RequestStats(3, 2));
 
         assertThat(report.summary().possiblyRateLimited()).isFalse();
-        assertThat(report.narrative()).doesNotContain("ATTENZIONE");
+        assertThat(report.narrative()).doesNotContain("WARNING");
     }
 
     private Finding finding(VulnerabilityType type, Severity severity) {

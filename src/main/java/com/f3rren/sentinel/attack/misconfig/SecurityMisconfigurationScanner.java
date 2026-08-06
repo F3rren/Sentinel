@@ -44,23 +44,24 @@ public class SecurityMisconfigurationScanner implements AttackModule {
     private static final String PROBE_ORIGIN = "https://sentinel-cors-probe.invalid";
 
     private static final String MISSING_HEADERS_RECOMMENDATION =
-            "Impostare gli header di sicurezza mancanti a livello di gateway (o in un filtro comune a "
-            + "tutti i servizi), cosi' la protezione e' uniforme senza doverla ripetere in ogni "
-            + "microservizio: X-Content-Type-Options: nosniff, X-Frame-Options: DENY (o CSP con "
-            + "frame-ancestors), Content-Security-Policy con una policy adeguata al tipo di risposta "
-            + "(un'API JSON puo' partire da default-src 'none'), e Strict-Transport-Security se il "
-            + "servizio e' esposto anche su HTTPS.";
+            "Set the missing security headers at the gateway level (or in a filter shared by all "
+            + "services), so the protection is applied uniformly without repeating it in every "
+            + "microservice: X-Content-Type-Options: nosniff, X-Frame-Options: DENY (or CSP with "
+            + "frame-ancestors), Content-Security-Policy with a policy suited to the response type "
+            + "(a JSON API can start from default-src 'none'), and Strict-Transport-Security if the "
+            + "service is also exposed over HTTPS.";
 
     private static final String PERMISSIVE_CORS_RECOMMENDATION =
-            "Sostituire il riflesso indiscriminato dell'Origin (o il wildcard '*') con un allow-list "
-            + "esplicito dei domini realmente autorizzati a chiamare l'API da browser. Se le richieste "
-            + "devono portare credenziali (cookie, header Authorization), Access-Control-Allow-Origin "
-            + "non puo' essere '*' per specifica CORS: va comunque ristretto a origini fidate.";
+            "Replace the indiscriminate reflection of the Origin (or the '*' wildcard) with an "
+            + "explicit allow-list of the domains actually authorized to call the API from a browser. "
+            + "If requests need to carry credentials (cookies, Authorization header), "
+            + "Access-Control-Allow-Origin cannot be '*' per the CORS spec: it must still be "
+            + "restricted to trusted origins.";
 
     private static final String SERVER_BANNER_RECOMMENDATION =
-            "Rimuovere o oscurare l'header che espone tecnologia/versione del server (es. tramite "
-            + "configurazione del gateway o del container HTTP), per non facilitare a un attaccante la "
-            + "ricerca di CVE note per quella versione specifica.";
+            "Remove or obscure the header that exposes the server's technology/version (e.g. via "
+            + "gateway or HTTP container configuration), so as not to make it easier for an attacker "
+            + "to look up known CVEs for that specific version.";
 
     private final SentinelHttpClient httpClient;
 
@@ -130,8 +131,8 @@ public class SecurityMisconfigurationScanner implements AttackModule {
                 endpoint.method().name(),
                 "",
                 "",
-                "La risposta non include uno o piu' header di sicurezza raccomandati.",
-                "Header mancanti su " + endpoint.method() + " " + endpoint.url() + ": " + String.join(", ", missing) + ".",
+                "The response does not include one or more recommended security headers.",
+                "Missing headers on " + endpoint.method() + " " + endpoint.url() + ": " + String.join(", ", missing) + ".",
                 MISSING_HEADERS_RECOMMENDATION
         ));
     }
@@ -169,10 +170,10 @@ public class SecurityMisconfigurationScanner implements AttackModule {
                 endpoint.method().name(),
                 "Origin",
                 PROBE_ORIGIN,
-                "La policy CORS accetta un Origin arbitrario invece di un allow-list di domini fidati.",
-                "Richiesta con header 'Origin: " + PROBE_ORIGIN + "' su " + endpoint.method() + " " + endpoint.url()
-                        + " ha ricevuto risposta 'Access-Control-Allow-Origin: " + value + "'"
-                        + (allowsCredentials ? " insieme a 'Access-Control-Allow-Credentials: true'." : "."),
+                "The CORS policy accepts an arbitrary Origin instead of an allow-list of trusted domains.",
+                "Request with header 'Origin: " + PROBE_ORIGIN + "' on " + endpoint.method() + " " + endpoint.url()
+                        + " received response 'Access-Control-Allow-Origin: " + value + "'"
+                        + (allowsCredentials ? " together with 'Access-Control-Allow-Credentials: true'." : "."),
                 PERMISSIVE_CORS_RECOMMENDATION
         ));
     }
@@ -195,8 +196,8 @@ public class SecurityMisconfigurationScanner implements AttackModule {
                 endpoint.method().name(),
                 "",
                 "",
-                "La risposta rivela tecnologia e/o versione del server tramite header HTTP.",
-                "Header rilevati su " + endpoint.method() + " " + endpoint.url() + ": " + String.join(", ", banners) + ".",
+                "The response discloses the server's technology and/or version via HTTP headers.",
+                "Headers detected on " + endpoint.method() + " " + endpoint.url() + ": " + String.join(", ", banners) + ".",
                 SERVER_BANNER_RECOMMENDATION
         ));
     }

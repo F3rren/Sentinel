@@ -68,15 +68,15 @@ public class BruteForceScanner implements AttackModule {
     );
 
     private static final String WEAK_CREDENTIALS_RECOMMENDATION =
-            "Non consentire credenziali di default o comuni per nessun account, applicativo o "
-            + "amministrativo. Imporre una policy di password robuste, obbligare il cambio "
-            + "password al primo accesso per account pre-creati e valutare l'autenticazione a "
-            + "più fattori per gli account con privilegi elevati.";
+            "Do not allow default or common credentials for any account, application, or "
+            + "administrative user. Enforce a strong password policy, force a password change "
+            + "on first login for pre-created accounts, and consider multi-factor authentication "
+            + "for accounts with elevated privileges.";
 
     private static final String MISSING_PROTECTION_RECOMMENDATION =
-            "Implementare rate-limiting o account lockout sugli endpoint di autenticazione (es. "
-            + "blocco temporaneo dopo N tentativi falliti consecutivi, backoff progressivo o "
-            + "CAPTCHA), per rendere impraticabile un attacco a forza bruta su larga scala.";
+            "Implement rate-limiting or account lockout on authentication endpoints (e.g. a "
+            + "temporary block after N consecutive failed attempts, progressive backoff, or "
+            + "CAPTCHA) to make a large-scale brute-force attack impractical.";
 
     private record Credential(String username, String password) {
     }
@@ -236,9 +236,9 @@ public class BruteForceScanner implements AttackModule {
                 endpoint.method().name(),
                 "",
                 credential.username() + " / " + credential.password(),
-                "L'endpoint ha accettato una combinazione di credenziali comuni/deboli come valida.",
-                "Status " + response.statusCode() + " su " + endpoint.method() + " " + endpoint.url()
-                        + " con le credenziali '" + credential.username() + "' / '" + credential.password() + "'.",
+                "The endpoint accepted a common/weak credential pair as valid.",
+                "Status " + response.statusCode() + " on " + endpoint.method() + " " + endpoint.url()
+                        + " with credentials '" + credential.username() + "' / '" + credential.password() + "'.",
                 WEAK_CREDENTIALS_RECOMMENDATION
         );
     }
@@ -253,11 +253,11 @@ public class BruteForceScanner implements AttackModule {
                 endpoint.method().name(),
                 "",
                 "",
-                "L'endpoint non ha mai bloccato o rallentato Sentinel dopo " + attemptsMade
-                        + " tentativi di login con credenziali diverse.",
-                attemptsMade + " tentativi consecutivi senza mai ricevere uno status 429 (Too Many "
-                        + "Requests) o 423 (Locked). Un numero di tentativi più alto potrebbe comunque "
-                        + "attivare una protezione non ancora raggiunta da questo campione.",
+                "The endpoint never blocked or throttled Sentinel after " + attemptsMade
+                        + " login attempts with different credentials.",
+                attemptsMade + " consecutive attempts without ever receiving a 429 (Too Many "
+                        + "Requests) or 423 (Locked) status. A higher number of attempts could still "
+                        + "trigger a protection not yet reached by this sample.",
                 MISSING_PROTECTION_RECOMMENDATION
         );
     }

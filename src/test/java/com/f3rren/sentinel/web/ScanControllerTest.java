@@ -39,7 +39,7 @@ class ScanControllerTest {
         ScanReport report = new ScanReport(
                 "scan-1", "http://localhost:8080", Instant.now(), Instant.now(), 42, 3, 3, null,
                 List.of(), Map.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Map.of(VulnerabilityType.SQL_INJECTION_ERROR_BASED, 0), Severity.INFO, 0, false),
-                "Investigazione su http://localhost:8080 completata in 42 ms. Nessuna vulnerabilità rilevata.");
+                "Investigation of http://localhost:8080 completed in 42 ms. No vulnerabilities detected.");
         when(scanService.runScan(eq("localhost:8080"))).thenReturn(report);
 
         mockMvc.perform(post("/api/scans")
@@ -61,7 +61,7 @@ class ScanControllerTest {
 
     @Test
     void startScanRejectsInvalidTarget() throws Exception {
-        when(scanService.runScan(anyString())).thenThrow(new InvalidTargetException("targetUrl non valido"));
+        when(scanService.runScan(anyString())).thenThrow(new InvalidTargetException("Invalid targetUrl"));
 
         mockMvc.perform(post("/api/scans")
                         .contentType("application/json")
@@ -85,7 +85,7 @@ class ScanControllerTest {
                 "scan-auto", "http://api-gateway:8080", Instant.now(), Instant.now(), 3646, 46, 46,
                 "http://api-gateway:8080/v3/api-docs/swagger-config",
                 List.of(), Map.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Map.of(VulnerabilityType.SQL_INJECTION_ERROR_BASED, 0), Severity.INFO, 0, false),
-                "Investigazione su http://api-gateway:8080 completata in 3,6 secondi. Nessuna vulnerabilità rilevata.");
+                "Investigation of http://api-gateway:8080 completed in 3.6 seconds. No vulnerabilities detected.");
         when(scanService.getLatestReport()).thenReturn(report);
 
         mockMvc.perform(get("/api/scans/latest"))

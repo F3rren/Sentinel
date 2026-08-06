@@ -46,7 +46,7 @@ public class AutoScanRunner implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         if (targetUrl == null || targetUrl.isBlank()) {
-            log.info("Auto-scan disabilitato (sentinel.scan.auto-target-url non impostata).");
+            log.info("Auto-scan disabled (sentinel.scan.auto-target-url not set).");
             return;
         }
 
@@ -54,23 +54,23 @@ public class AutoScanRunner implements ApplicationRunner {
         try {
             normalizedUrl = scanService.normalizeTargetUrl(targetUrl);
         } catch (InvalidTargetException e) {
-            log.error("Auto-scan disabilitato: {}", e.getMessage());
+            log.error("Auto-scan disabled: {}", e.getMessage());
             return;
         }
 
-        log.info("Auto-scan abilitato per {}: attendo che il target sia raggiungibile...", normalizedUrl);
+        log.info("Auto-scan enabled for {}: waiting for the target to become reachable...", normalizedUrl);
         if (!waitUntilReachable(normalizedUrl)) {
-            log.warn("Target {} non raggiungibile dopo {} tentativi: auto-scan annullato. "
-                    + "Puoi comunque avviare una scansione manualmente via POST /api/scans.", normalizedUrl, maxAttempts);
+            log.warn("Target {} unreachable after {} attempts: auto-scan cancelled. "
+                    + "You can still start a scan manually via POST /api/scans.", normalizedUrl, maxAttempts);
             return;
         }
 
-        log.info("Target {} raggiungibile: avvio la scansione automatica.", normalizedUrl);
+        log.info("Target {} reachable: starting the automatic scan.", normalizedUrl);
         try {
             ScanReport report = scanService.runScan(normalizedUrl);
             log.info(report.narrative());
         } catch (Exception e) {
-            log.error("Auto-scan fallito per {}: {}", normalizedUrl, e.getMessage(), e);
+            log.error("Auto-scan failed for {}: {}", normalizedUrl, e.getMessage(), e);
         }
     }
 
@@ -80,7 +80,7 @@ public class AutoScanRunner implements ApplicationRunner {
                 httpClient.get(normalizedUrl);
                 return true;
             } catch (Exception e) {
-                log.debug("Tentativo {}/{} fallito per {}: {}", attempt, maxAttempts, normalizedUrl, e.getMessage());
+                log.debug("Attempt {}/{} failed for {}: {}", attempt, maxAttempts, normalizedUrl, e.getMessage());
                 sleep(retryDelayMs);
             }
         }

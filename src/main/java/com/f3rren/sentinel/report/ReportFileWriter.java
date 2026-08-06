@@ -50,9 +50,9 @@ public class ReportFileWriter {
             Files.createDirectories(reportsDirectory);
             Path target = reportsDirectory.resolve(buildFileName(report));
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(target.toFile(), report);
-            log.info("Report salvato in {}", target.toAbsolutePath());
+            log.info("Report saved to {}", target.toAbsolutePath());
         } catch (Exception e) {
-            log.warn("Impossibile salvare su file il report {}: {}", report.id(), e.getMessage());
+            log.warn("Failed to save report {} to file: {}", report.id(), e.getMessage());
         }
     }
 

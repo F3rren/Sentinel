@@ -45,13 +45,13 @@ public class XssScanner implements AttackModule {
     private static final Logger log = LoggerFactory.getLogger(XssScanner.class);
 
     private static final String RECOMMENDATION =
-            "Applicare output encoding contestuale su ogni input riflesso nella risposta (HTML entity "
-            + "encoding per contenuto renderizzato in pagine HTML, encoding corretto dei valori nelle "
-            + "risposte JSON) - non basarsi sulla sola validazione lato client. Impostare un "
-            + "Content-Type esplicito e coerente su ogni risposta, con X-Content-Type-Options: nosniff, "
-            + "cosi' un browser non tenta di interpretare come HTML una risposta pensata come dati puri "
-            + "(es. JSON). Dove possibile, una Content-Security-Policy che limiti gli script inline "
-            + "riduce l'impatto anche in caso di encoding mancante.";
+            "Apply contextual output encoding to every input reflected in the response (HTML entity "
+            + "encoding for content rendered in HTML pages, correct encoding of values in JSON "
+            + "responses) - do not rely on client-side validation alone. Set an explicit, consistent "
+            + "Content-Type on every response, together with X-Content-Type-Options: nosniff, so a "
+            + "browser does not attempt to interpret as HTML a response meant to be pure data (e.g. "
+            + "JSON). Where possible, a Content-Security-Policy that restricts inline scripts reduces "
+            + "the impact even when encoding is missing.";
 
     private static final List<String> PAYLOADS = List.of(
             "<script>alert('sentinel-xss')</script>",
@@ -103,11 +103,11 @@ public class XssScanner implements AttackModule {
             VulnerabilityType type = htmlRenderable ? VulnerabilityType.REFLECTED_XSS : VulnerabilityType.UNSANITIZED_INPUT_REFLECTION;
             Severity severity = htmlRenderable ? Severity.HIGH : Severity.LOW;
             String description = htmlRenderable
-                    ? "Il parametro '" + param.name() + "' viene riflesso senza encoding in una risposta "
-                            + "con Content-Type HTML (o assente): un browser eseguirebbe lo script iniettato."
-                    : "Il parametro '" + param.name() + "' viene riflesso senza encoding nella risposta, ma "
-                            + "il Content-Type non e' HTML: non direttamente exploitable tramite questa "
-                            + "risposta, ma indica assenza di output encoding sull'input riflesso.";
+                    ? "Parameter '" + param.name() + "' is reflected without encoding in a response "
+                            + "with an HTML (or missing) Content-Type: a browser would execute the injected script."
+                    : "Parameter '" + param.name() + "' is reflected without encoding in the response, but "
+                            + "the Content-Type is not HTML: not directly exploitable through this "
+                            + "response, but indicates a lack of output encoding on the reflected input.";
 
             return Optional.of(new Finding(
                     UUID.randomUUID().toString(),
@@ -119,8 +119,8 @@ public class XssScanner implements AttackModule {
                     param.name(),
                     payload,
                     description,
-                    "Payload riflesso invariato nel corpo della risposta (Content-Type: "
-                            + response.header("content-type").orElse("assente") + ").",
+                    "Payload reflected unchanged in the response body (Content-Type: "
+                            + response.header("content-type").orElse("missing") + ").",
                     RECOMMENDATION
             ));
         }

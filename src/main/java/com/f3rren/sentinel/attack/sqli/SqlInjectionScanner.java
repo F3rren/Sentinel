@@ -41,11 +41,10 @@ public class SqlInjectionScanner implements AttackModule {
     private static final Logger log = LoggerFactory.getLogger(SqlInjectionScanner.class);
 
     private static final String RECOMMENDATION =
-            "Utilizzare sempre query parametrizzate (prepared statement) o un ORM con binding "
-            + "sicuro dei parametri, evitando la concatenazione di input utente nelle query SQL. "
-            + "Validare e whitelistare l'input lato server, applicare il principio del privilegio "
-            + "minimo all'utente del database ed evitare di esporre stack trace o messaggi di "
-            + "errore del database in produzione.";
+            "Always use parameterized queries (prepared statements) or an ORM with safe parameter "
+            + "binding, avoiding string concatenation of user input into SQL queries. Validate and "
+            + "whitelist input server-side, apply the principle of least privilege to the database "
+            + "user, and avoid exposing stack traces or database error messages in production.";
 
     private static final List<String> ERROR_BASED_PAYLOADS = List.of(
             "'",
@@ -128,8 +127,8 @@ public class SqlInjectionScanner implements AttackModule {
                         endpoint.method().name(),
                         param.name(),
                         payload,
-                        "Il parametro '" + param.name() + "' riflette un messaggio di errore del "
-                                + "database (" + match.get().database() + ") in risposta a un payload SQL injection.",
+                        "Parameter '" + param.name() + "' reflects a database error message ("
+                                + match.get().database() + ") in response to a SQL injection payload.",
                         match.get().snippet(),
                         RECOMMENDATION
                 ));
@@ -166,7 +165,7 @@ public class SqlInjectionScanner implements AttackModule {
 
         if (statusDiffers || (trueMatchesBaselineShape && bodyDiffers)) {
             String evidence = String.format(
-                    "Lunghezza risposta - baseline: %d, condizione vera (%s): %d, condizione falsa (%s): %d, status vero/falso: %d/%d",
+                    "Response length - baseline: %d, true condition (%s): %d, false condition (%s): %d, true/false status: %d/%d",
                     baseLen, BOOLEAN_TRUE_PAYLOAD, trueLen, BOOLEAN_FALSE_PAYLOAD, falseLen,
                     trueResponse.statusCode(), falseResponse.statusCode());
             return Optional.of(new Finding(
@@ -178,9 +177,9 @@ public class SqlInjectionScanner implements AttackModule {
                     endpoint.method().name(),
                     param.name(),
                     BOOLEAN_TRUE_PAYLOAD,
-                    "Il parametro '" + param.name() + "' produce risposte diverse tra una condizione "
-                            + "booleana sempre vera e sempre falsa iniettata: possibile SQL injection "
-                            + "blind/boolean-based.",
+                    "Parameter '" + param.name() + "' produces different responses between an "
+                            + "injected always-true and always-false boolean condition: possible "
+                            + "blind/boolean-based SQL injection.",
                     evidence,
                     RECOMMENDATION
             ));
