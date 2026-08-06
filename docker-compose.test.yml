@@ -1,0 +1,19 @@
+# Test environment: runs the Maven test suite in a container and exits - no service stays up
+# afterward. Meant for CI, or for running the suite locally without a JDK/Maven install.
+#
+#   cp env.test.example .env.test   # optional - only needed to tune MAVEN_OPTS
+#   docker compose -f docker-compose.test.yml --env-file .env.test up --build --abort-on-container-exit
+#   echo $?   # 0 if the suite passed, non-zero otherwise
+#
+# Unlike the dev/prod environments, this one doesn't talk to a victim, so there's no
+# VICTIM_NETWORK_NAME or scan-tuning variables to set - .env.test only exists for JVM/Maven
+# tuning (e.g. a memory-constrained CI runner).
+
+services:
+  sentinel-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: sentinel-test
+    environment:
+      MAVEN_OPTS: ${MAVEN_OPTS:-}

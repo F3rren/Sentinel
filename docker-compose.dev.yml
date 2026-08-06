@@ -1,0 +1,47 @@
+# Development environment: fast local iteration against a victim you're actively testing.
+#
+#   cp env.dev.example .env.dev
+#   # edit .env.dev: set VICTIM_NETWORK_NAME (docker network ls) and anything else you want
+#   docker compose -f docker-compose.dev.yml --env-file .env.dev up -d --build
+#
+# After a code change: docker compose -f docker-compose.dev.yml restart sentinel (src/ is
+# bind-mounted - no image rebuild needed, see Dockerfile.dev).
+#
+# --env-file is required here (not just cp'ing to a plain .env): Compose only auto-loads a
+# file literally named .env, and this project needs three different environments' variables to
+# stay in three different files instead of overwriting one shared .env whenever you switch.
+
+services:
+  sentinel:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: sentinel-dev
+    ports:
+      - "8088:8080"
+    environment:
+      SENTINEL_SCAN_MAX_ENDPOINTS: ${SENTINEL_SCAN_MAX_ENDPOINTS:-25}
+      SENTINEL_SCAN_AUTO_TARGET_URL: ${SENTINEL_SCAN_AUTO_TARGET_URL:-}
+      SENTINEL_SCAN_SQL_INJECTION_ENABLED: ${SENTINEL_SCAN_SQL_INJECTION_ENABLED:-true}
+      SENTINEL_SCAN_MISSING_AUTHENTICATION_ENABLED: ${SENTINEL_SCAN_MISSING_AUTHENTICATION_ENABLED:-true}
+      SENTINEL_SCAN_BRUTE_FORCE_ENABLED: ${SENTINEL_SCAN_BRUTE_FORCE_ENABLED:-true}
+      SENTINEL_SCAN_SECURITY_MISCONFIGURATION_ENABLED: ${SENTINEL_SCAN_SECURITY_MISCONFIGURATION_ENABLED:-true}
+      SENTINEL_SCAN_XSS_ENABLED: ${SENTINEL_SCAN_XSS_ENABLED:-true}
+      SENTINEL_SCAN_RATE_LIMIT_ENABLED: ${SENTINEL_SCAN_RATE_LIMIT_ENABLED:-true}
+      SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE: ${SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE:-130}
+      # GET-only by default in dev: iterating usually means re-running the same scan against
+      # the same local victim repeatedly, and this guarantees that never mutates its data.
+      # Override in .env.dev once you deliberately want to exercise write endpoints too.
+      SENTINEL_SCAN_ALLOWED_HTTP_METHODS: ${SENTINEL_SCAN_ALLOWED_HTTP_METHODS:-GET}
+      SENTINEL_LOG_HTTP_LEVEL: ${SENTINEL_LOG_HTTP_LEVEL:-DEBUG}
+    volumes:
+      - ./src:/app/src:ro
+      - ./reports:/app/reports
+    networks:
+      - victim-network
+    restart: "no"
+
+networks:
+  victim-network:
+    external: true
+    name: ${VICTIM_NETWORK_NAME:?Set VICTIM_NETWORK_NAME in .env.dev (copy env.dev.example)}
