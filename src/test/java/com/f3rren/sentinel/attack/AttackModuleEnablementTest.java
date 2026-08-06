@@ -6,6 +6,7 @@ import com.f3rren.sentinel.attack.bruteforce.BruteForceScanner;
 import com.f3rren.sentinel.attack.misconfig.SecurityMisconfigurationScanner;
 import com.f3rren.sentinel.attack.ratelimit.RateLimitScanner;
 import com.f3rren.sentinel.attack.sqli.SqlInjectionScanner;
+import com.f3rren.sentinel.attack.xss.XssScanner;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -26,11 +27,12 @@ class AttackModuleEnablementTest {
 
     @Test
     void everyModuleIsRegisteredByDefault() {
-        assertThat(attackModules).hasSize(5);
+        assertThat(attackModules).hasSize(6);
         assertThat(attackModules).hasAtLeastOneElementOfType(SqlInjectionScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(MissingAuthenticationScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(BruteForceScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(SecurityMisconfigurationScanner.class);
+        assertThat(attackModules).hasAtLeastOneElementOfType(XssScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(RateLimitScanner.class);
     }
 
