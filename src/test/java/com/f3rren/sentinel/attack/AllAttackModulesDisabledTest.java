@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "sentinel.scan.sql-injection.enabled=false",
         "sentinel.scan.missing-authentication.enabled=false",
         "sentinel.scan.brute-force.enabled=false",
+        "sentinel.scan.security-misconfiguration.enabled=false",
         "sentinel.scan.rate-limit.enabled=false"
 })
 class AllAttackModulesDisabledTest {

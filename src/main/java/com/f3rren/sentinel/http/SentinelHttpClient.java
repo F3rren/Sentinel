@@ -13,6 +13,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -72,6 +74,21 @@ public class SentinelHttpClient {
 
     public HttpResponseData get(String url) throws IOException, InterruptedException {
         return sendWithoutBody(HttpMethod.GET, url);
+    }
+
+    /**
+     * A GET carrying one extra caller-supplied header - e.g. an {@code Origin} header to probe
+     * how the target's CORS policy reacts to a specific value, which none of the other methods
+     * here support since they only ever set {@code User-Agent} (and a content type for bodies).
+     */
+    public HttpResponseData getWithHeader(String url, String headerName, String headerValue) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(requestTimeout)
+                .header("User-Agent", userAgent)
+                .header(headerName, headerValue)
+                .GET()
+                .build();
+        return send(request);
     }
 
     public HttpResponseData postForm(String url, Map<String, String> formParams) throws IOException, InterruptedException {
@@ -163,7 +180,20 @@ public class SentinelHttpClient {
         if (THROTTLE_STATUS_CODES.contains(response.statusCode())) {
             throttledResponses.incrementAndGet();
         }
-        return new HttpResponseData(response.statusCode(), response.body(), elapsed);
+        return new HttpResponseData(response.statusCode(), response.body(), elapsed, headerMapOf(response));
+    }
+
+    // Header names lower-cased so HttpResponseData#header() can do a case-insensitive lookup
+    // without redoing this work per call; only the first value of a repeated header is kept,
+    // which is enough for the single-value headers every caller here actually inspects.
+    private Map<String, String> headerMapOf(HttpResponse<String> response) {
+        Map<String, String> headers = new HashMap<>();
+        response.headers().map().forEach((name, values) -> {
+            if (!values.isEmpty()) {
+                headers.put(name.toLowerCase(Locale.ROOT), values.get(0));
+            }
+        });
+        return headers;
     }
 
     private String encodeForm(Map<String, String> params) {

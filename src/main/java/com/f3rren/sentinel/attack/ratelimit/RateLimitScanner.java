@@ -43,7 +43,7 @@ import java.util.UUID;
  * inconclusive) purely as a side effect of this module's own traffic.
  */
 @Component
-@Order(3)
+@Order(4)
 @ConditionalOnProperty(prefix = "sentinel.scan.rate-limit", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class RateLimitScanner implements AttackModule {
 
