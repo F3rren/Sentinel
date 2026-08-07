@@ -2,10 +2,10 @@
 #
 #   cp env.prod.example .env.prod
 #   # edit .env.prod: VICTIM_NETWORK_NAME at minimum
-#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#   docker compose -f docker/docker-compose.prod.yml --env-file .env.prod up -d --build
 #
 # Differences from dev that actually matter here:
-#   - Dockerfile.prod: multi-stage build, final image ships only a JRE + the jar (no Maven, no
+#   - docker/Dockerfile.prod: multi-stage build, final image ships only a JRE + the jar (no Maven, no
 #     source), running as a dedicated non-root user.
 #   - restart: unless-stopped, and a memory/CPU ceiling, so a runaway scan can't take down the
 #     host it's running on.
@@ -17,8 +17,8 @@
 services:
   sentinel:
     build:
-      context: .
-      dockerfile: Dockerfile.prod
+      context: ..
+      dockerfile: docker/Dockerfile.prod
     container_name: sentinel-prod
     restart: unless-stopped
     mem_limit: 512m
@@ -38,7 +38,7 @@ services:
       SENTINEL_SCAN_ALLOWED_HTTP_METHODS: ${SENTINEL_SCAN_ALLOWED_HTTP_METHODS:-GET,POST,PUT,PATCH,DELETE}
       SENTINEL_LOG_HTTP_LEVEL: ${SENTINEL_LOG_HTTP_LEVEL:-INFO}
     volumes:
-      - ./reports:/app/reports
+      - ../reports:/app/reports
     networks:
       - victim-network
 

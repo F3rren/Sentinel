@@ -2,10 +2,10 @@
 #
 #   cp env.dev.example .env.dev
 #   # edit .env.dev: set VICTIM_NETWORK_NAME (docker network ls) and anything else you want
-#   docker compose -f docker-compose.dev.yml --env-file .env.dev up -d --build
+#   docker compose -f docker/docker-compose.dev.yml --env-file .env.dev up -d --build
 #
-# After a code change: docker compose -f docker-compose.dev.yml restart sentinel (src/ is
-# bind-mounted - no image rebuild needed, see Dockerfile.dev).
+# After a code change: docker compose -f docker/docker-compose.dev.yml restart sentinel (src/ is
+# bind-mounted - no image rebuild needed, see docker/Dockerfile.dev).
 #
 # --env-file is required here (not just cp'ing to a plain .env): Compose only auto-loads a
 # file literally named .env, and this project needs three different environments' variables to
@@ -14,8 +14,8 @@
 services:
   sentinel:
     build:
-      context: .
-      dockerfile: Dockerfile.dev
+      context: ..
+      dockerfile: docker/Dockerfile.dev
     container_name: sentinel-dev
     ports:
       - "8088:8080"
@@ -35,8 +35,8 @@ services:
       SENTINEL_SCAN_ALLOWED_HTTP_METHODS: ${SENTINEL_SCAN_ALLOWED_HTTP_METHODS:-GET}
       SENTINEL_LOG_HTTP_LEVEL: ${SENTINEL_LOG_HTTP_LEVEL:-DEBUG}
     volumes:
-      - ./src:/app/src:ro
-      - ./reports:/app/reports
+      - ../src:/app/src:ro
+      - ../reports:/app/reports
     networks:
       - victim-network
     restart: "no"

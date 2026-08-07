@@ -35,13 +35,13 @@ The app starts on `http://localhost:8080`.
 If the victim already runs via its own `docker-compose`, Sentinel can join the same Docker network to reach it by container name instead of `localhost`:
 
 ```bash
-cp .env.example .env
+cp env.example .env
 # open .env and set VICTIM_NETWORK_NAME to the victim's real network name
 # (find it with: docker network ls)
 docker compose up -d --build
 ```
 
-Sentinel will be reachable at `http://localhost:8088`. Details and troubleshooting are in the comments of `docker-compose.yml` and `.env.example`.
+Sentinel will be reachable at `http://localhost:8088`. Details and troubleshooting are in the comments of `docker-compose.yml` and `env.example`.
 
 **Fully automatic scan (zero manual commands)**: if you also set `SENTINEL_SCAN_AUTO_TARGET_URL` in `.env` to the victim's URL (e.g. `http://api-gateway:8080`), Sentinel waits on its own for the target to respond and launches the scan on container startup, with no manual request needed. The result can be checked at any time with:
 
@@ -51,7 +51,7 @@ curl http://localhost:8088/api/scans/latest
 
 ### Dev / test / prod environments
 
-The `Dockerfile`/`docker-compose.yml`/`.env.example` above are the simple, one-size-fits-all path - fine for a quick scan. `Dockerfile.{dev,test,prod}` and `docker-compose.{dev,test,prod}.yml` split that into three environments that actually behave differently, not just three renamed copies:
+The `Dockerfile`/`docker-compose.yml`/`env.example` above are the simple, one-size-fits-all path - fine for a quick scan. `docker/Dockerfile.{dev,test,prod}` and `docker/docker-compose.{dev,test,prod}.yml` split that into three environments that actually behave differently, not just three renamed copies:
 
 | | `dev` | `test` | `prod` |
 |---|---|---|---|
@@ -66,14 +66,14 @@ Each environment reads its own `.env.<name>` (copy the matching `env.<name>.exam
 ```bash
 # dev
 cp env.dev.example .env.dev
-docker compose -f docker-compose.dev.yml --env-file .env.dev up -d --build
+docker compose -f docker/docker-compose.dev.yml --env-file .env.dev up -d --build
 
 # test (no victim involved, no --env-file needed unless tuning MAVEN_OPTS)
-docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
+docker compose -f docker/docker-compose.test.yml up --build --abort-on-container-exit
 
 # prod
 cp env.prod.example .env.prod
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+docker compose -f docker/docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
 **Why bother splitting them**: the three environments want genuinely conflicting things from the same codebase - dev wants a fast edit-run loop and safe (`GET`-only) defaults since you're re-running the same scan repeatedly against your own test victim; test wants a throwaway, dependency-free way to get a trustworthy pass/fail without polluting a real environment's config; prod wants the smallest, least-privileged image and guardrails (restart policy, resource limits) appropriate for something left running unattended against a real authorized target. A single `Dockerfile`/`docker-compose.yml` can only really serve one of those well at a time - the others end up either slower than necessary (rebuilding an image on every dev change) or under-hardened (shipping Maven and source in what's meant to be a production image).

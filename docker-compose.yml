@@ -5,8 +5,8 @@
 #
 # Plug-and-play setup:
 #   1. Start the victim stack first (from its own repo): docker compose up -d
-#   2. cp .env.example .env, then edit the values inside for the victim you're targeting
-#      right now (docker network ls tells you the real network name - see .env.example
+#   2. cp env.example .env, then edit the values inside for the victim you're targeting
+#      right now (docker network ls tells you the real network name - see env.example
 #      for how Compose derives it). That's the only manual step; `docker compose up` below
 #      reads .env automatically from now on, every time, no shell exports needed. Switching
 #      to a different victim later just means editing .env again.
@@ -50,4 +50,4 @@ services:
 networks:
   victim-network:
     external: true
-    name: ${VICTIM_NETWORK_NAME:?Set VICTIM_NETWORK_NAME in your .env file (copy .env.example) to the current victim's Docker network name}
+    name: ${VICTIM_NETWORK_NAME:?Set VICTIM_NETWORK_NAME in your .env file (copy env.example) to the current victim's Docker network name}
