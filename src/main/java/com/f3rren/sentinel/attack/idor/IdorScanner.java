@@ -143,6 +143,9 @@ public class IdorScanner implements AttackModule {
             return;
         }
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            log.warn("IDOR setup (create as identity A) got {} for {} {}: {}", response.statusCode(),
+                    endpoint.method(), endpoint.url(),
+                    response.header("x-auth-failure-reason").orElse(response.bodyOrEmpty()));
             return;
         }
         extractIdFromJson(response.bodyOrEmpty())
