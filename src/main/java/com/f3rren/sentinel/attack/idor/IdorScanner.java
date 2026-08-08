@@ -13,6 +13,7 @@ import com.f3rren.sentinel.model.VulnerabilityType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
@@ -51,7 +52,13 @@ import java.util.regex.Pattern;
  * it never leaks from one scan into the next.
  */
 @Component
-@Order(2)
+// Runs before every other module (including sql-injection at Order(0)): this module makes very
+// few requests overall (one create + one comparison per resource family), but that single create
+// is a hard dependency - if it gets throttled by a rate limit another module already exhausted,
+// the whole check silently no-ops for that family (a 429 there isn't distinguished from a real
+// 403/404, on purpose - see recordCreatedResourceId). Going first gives it the cleanest possible
+// shot at an unthrottled response before any other module's fuzzing burns the target's budget.
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @ConditionalOnProperty(prefix = "sentinel.scan.idor", name = "enabled", havingValue = "true", matchIfMissing = false)
 public class IdorScanner implements AttackModule {
 
