@@ -16,6 +16,7 @@ import org.springframework.http.HttpMethod;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -94,8 +95,13 @@ class IdorScannerTest {
         assertThat(createRequestCount.get()).isEqualTo(1);
 
         // Discovery would have put the generic sample id "1" here - the scanner must rewrite it
-        // to the id actually created by identity A (42) before checking identity B.
-        List<Finding> itemFindings = scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.GET, List.of()));
+        // to the id actually created by identity A (42) before checking identity B. The check
+        // itself is deferred: scan() only queues it, endScan() actually resolves it.
+        List<Finding> deferred = scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.GET, List.of()));
+        assertThat(deferred).isEmpty();
+        assertThat(itemRequestCount.get()).isZero();
+
+        List<Finding> itemFindings = scanner.endScan();
 
         assertThat(itemFindings).isEmpty();
         assertThat(lastItemRequestPath).isEqualTo("/aquariums/42");
@@ -106,8 +112,9 @@ class IdorScannerTest {
         itemStatusForIdentityB = 200; // vulnerable outcome
         scanner.beginScan(new ScanContext(IDENTITY_A, IDENTITY_B));
         scanner.scan(new Endpoint(baseUrl + "/aquariums", HttpMethod.POST, List.of()));
+        scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.GET, List.of()));
 
-        List<Finding> findings = scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.GET, List.of()));
+        List<Finding> findings = scanner.endScan();
 
         assertThat(findings).hasSize(1);
         Finding finding = findings.get(0);
@@ -117,12 +124,28 @@ class IdorScannerTest {
     }
 
     @Test
+    void flagsIdorEvenWhenTheItemEndpointIsDiscoveredBeforeTheCreateEndpoint() {
+        // Common in practice: an OpenAPI spec grouping every /aquariums/{id} operation before
+        // /aquariums itself. The item check must still resolve once the create is eventually seen.
+        itemStatusForIdentityB = 200; // vulnerable outcome
+        scanner.beginScan(new ScanContext(IDENTITY_A, IDENTITY_B));
+        scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.GET, List.of()));
+        scanner.scan(new Endpoint(baseUrl + "/aquariums", HttpMethod.POST, List.of()));
+
+        List<Finding> findings = scanner.endScan();
+
+        assertThat(findings).hasSize(1);
+        assertThat(findings.get(0).endpointUrl()).isEqualTo(baseUrl + "/aquariums/42");
+    }
+
+    @Test
     void doesNotFlagWhenIdentityBIsDenied() {
         itemStatusForIdentityB = 403;
         scanner.beginScan(new ScanContext(IDENTITY_A, IDENTITY_B));
         scanner.scan(new Endpoint(baseUrl + "/aquariums", HttpMethod.POST, List.of()));
+        scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.GET, List.of()));
 
-        List<Finding> findings = scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.GET, List.of()));
+        List<Finding> findings = scanner.endScan();
 
         assertThat(findings).isEmpty();
     }
@@ -132,8 +155,9 @@ class IdorScannerTest {
         itemStatusForIdentityB = 200; // vulnerable outcome
         scanner.beginScan(new ScanContext(IDENTITY_A, IDENTITY_B));
         scanner.scan(new Endpoint(baseUrl + "/aquariums", HttpMethod.POST, List.of()));
+        scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.DELETE, List.of()));
 
-        List<Finding> findings = scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.DELETE, List.of()));
+        List<Finding> findings = scanner.endScan();
 
         assertThat(findings).hasSize(1);
         assertThat(findings.get(0).severity()).isEqualTo(Severity.CRITICAL);
@@ -143,17 +167,22 @@ class IdorScannerTest {
     void ignoresNestedResourceCreateEndpoints() {
         scanner.beginScan(new ScanContext(IDENTITY_A, IDENTITY_B));
 
-        List<Finding> findings = scanner.scan(new Endpoint(baseUrl + "/aquariums/1/tasks", HttpMethod.POST, List.of()));
+        List<Finding> findings = new ArrayList<>(scanner.scan(new Endpoint(baseUrl + "/aquariums/1/tasks", HttpMethod.POST, List.of())));
+        findings.addAll(scanner.endScan());
 
         assertThat(findings).isEmpty();
         assertThat(itemRequestCount.get()).isZero();
+        assertThat(createRequestCount.get()).isZero();
     }
 
     @Test
     void doesNothingForItemEndpointWithoutAPriorCreateInTheSameScan() {
         scanner.beginScan(new ScanContext(IDENTITY_A, IDENTITY_B));
 
-        List<Finding> findings = scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.GET, List.of()));
+        List<Finding> deferred = scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.GET, List.of()));
+        assertThat(deferred).isEmpty();
+
+        List<Finding> findings = scanner.endScan();
 
         assertThat(findings).isEmpty();
         assertThat(itemRequestCount.get()).isZero();
@@ -169,7 +198,8 @@ class IdorScannerTest {
         // A brand new scan that never re-creates a resource must not remember the previous
         // scan's id - the module is a singleton bean shared across every scan.
         scanner.beginScan(new ScanContext(IDENTITY_A, IDENTITY_B));
-        List<Finding> findings = scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.GET, List.of()));
+        scanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.GET, List.of()));
+        List<Finding> findings = scanner.endScan();
 
         assertThat(findings).isEmpty();
         assertThat(itemRequestCount.get()).isZero();

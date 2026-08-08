@@ -176,7 +176,11 @@ public class ScanService {
                     }
                 }
             } finally {
-                module.endScan();
+                try {
+                    findings.addAll(module.endScan());
+                } catch (Exception e) {
+                    log.warn("Attack module {} failed on endScan: {}", module.name(), e.getMessage());
+                }
             }
         }
         RequestStats requestStats = httpClient.requestStats();

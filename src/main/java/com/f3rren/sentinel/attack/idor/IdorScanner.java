@@ -21,6 +21,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -81,6 +82,7 @@ public class IdorScanner implements AttackModule {
     private final SentinelHttpClient httpClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, String> createdResourceIdByFamily = new HashMap<>();
+    private final List<Endpoint> pendingItemEndpoints = new ArrayList<>();
     private ScanContext scanContext;
 
     public IdorScanner(SentinelHttpClient httpClient) {
@@ -96,12 +98,37 @@ public class IdorScanner implements AttackModule {
     public void beginScan(ScanContext context) {
         this.scanContext = context;
         this.createdResourceIdByFamily.clear();
+        this.pendingItemEndpoints.clear();
     }
 
+    /**
+     * Every item-endpoint check is deferred to here rather than resolved eagerly during
+     * {@link #scan(Endpoint)}: discovery order is not guaranteed to put a collection's create
+     * before its item endpoints (e.g. an OpenAPI spec grouping every {@code /aquariums/{id}}
+     * operation before {@code /aquariums} itself is common), so checking eagerly would
+     * permanently miss any item endpoint discovered before its create. Resolving them all here
+     * instead guarantees every create this scan will ever perform has already happened,
+     * regardless of the order endpoints were discovered in.
+     */
     @Override
-    public void endScan() {
+    public List<Finding> endScan() {
+        List<Finding> findings = new ArrayList<>();
+        for (Endpoint endpoint : pendingItemEndpoints) {
+            String family = familyKey(endpoint.url());
+            String createdId = createdResourceIdByFamily.get(family);
+            if (createdId == null) {
+                // No proven ownership to test against was ever created in this same scan - v1
+                // only implements the high-confidence, provable-ownership case, so skip silently
+                // rather than guessing off the generic sample id discovery put in the URL.
+                continue;
+            }
+            String urlWithCreatedId = replaceTrailingIdSegment(endpoint.url(), createdId);
+            findings.addAll(checkCrossIdentityAccess(endpoint, urlWithCreatedId, createdId));
+        }
         this.scanContext = null;
         this.createdResourceIdByFamily.clear();
+        this.pendingItemEndpoints.clear();
+        return findings;
     }
 
     @Override
@@ -115,22 +142,10 @@ public class IdorScanner implements AttackModule {
             return List.of();
         }
 
-        Optional<String> ownId = extractTrailingIdSegment(endpoint.url());
-        if (ownId.isEmpty()) {
-            return List.of();
+        if (extractTrailingIdSegment(endpoint.url()).isPresent()) {
+            pendingItemEndpoints.add(endpoint);
         }
-
-        String family = familyKey(endpoint.url());
-        String createdId = createdResourceIdByFamily.get(family);
-        if (createdId == null) {
-            // No proven ownership to test against was created earlier in this same scan - v1
-            // only implements the high-confidence, provable-ownership case, so skip silently
-            // rather than guessing off the generic sample id discovery put in the URL.
-            return List.of();
-        }
-
-        String urlWithCreatedId = replaceTrailingIdSegment(endpoint.url(), createdId);
-        return checkCrossIdentityAccess(endpoint, urlWithCreatedId, createdId);
+        return List.of();
     }
 
     private void recordCreatedResourceId(Endpoint endpoint) {
