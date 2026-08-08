@@ -9,16 +9,15 @@ Sentinel is an **automated security testing** tool: given an application's addre
 1. **Endpoint discovery**, in two phases:
    - **OpenAPI/Swagger** (preferred phase): tries to read a spec at `/v3/api-docs`, `/v2/api-docs`, `/swagger.json`, `/openapi.json`, etc. If the target is an API gateway aggregating multiple services (springdoc `swagger-config` or springfox `swagger-resources`), it follows the aggregation and fetches every downstream service's spec. When an operation documents a JSON `requestBody` (typical of POST/PUT/PATCH), it also generates a type-aware sample body (resolving `$ref`s against `components/schemas`: integers as numbers, booleans as booleans, strings with a consistent format), so the endpoint receives a request it can actually process instead of immediately rejecting it with 415/400 for a missing or wrongly-shaped body. Required properties are always populated; optional ones are populated too unless they carry a `pattern` constraint or are an array/object - values a generic sample can't safely guess without risking a validation failure that an absent field would otherwise skip. Fields with no format/enum/pattern constraint get a random, clearly-synthetic `sentinel-<token>` value rather than a plain word like "test" - easy to tell apart from real user data and to grep for in the target's logs/database afterward.
    - **HTML crawling**: if no spec is found (or in addition to it), it parses the target's page for links with a query string and forms, merging them (deduplicated) with whatever Swagger already found.
-2. **Attack**, six modules:
+2. **Attack**, seven modules:
    - **SQL Injection**: both error-based (fingerprinting MySQL/MariaDB, PostgreSQL, MSSQL, Oracle, SQLite, and JDBC/Hibernate error messages) and boolean-based/blind (heuristic on injected true/false conditions). A response throttled by the target's own rate limiting (HTTP 429) on either side of the true/false comparison is treated as inconclusive rather than a signal, since it reflects Sentinel's own request volume, not the application's query logic.
-   - **Missing Authentication**: flags endpoints that respond successfully (2xx) to a request carrying no credentials at all (Sentinel never sends an authentication header). A 401/403 response is treated as proof that authentication is enforced (no finding); any other status (400/404/5xx) is inconclusive and ignored. Thanks to the JSON body generated from the OpenAPI schema, this now also works for POST/PUT/PATCH endpoints that require a body - previously they almost always returned 415 (inconclusive), now they can receive a real response. This is deliberately narrower than a true IDOR/BOLA test (which would need two distinct authenticated identities to compare - a concept Sentinel doesn't have yet): it only answers "does this endpoint require authentication at all?".
+   - **Missing Authentication**: flags endpoints that respond successfully (2xx) to a request carrying no credentials at all (Sentinel never sends an authentication header). A 401/403 response is treated as proof that authentication is enforced (no finding); any other status (400/404/5xx) is inconclusive and ignored. Thanks to the JSON body generated from the OpenAPI schema, this now also works for POST/PUT/PATCH endpoints that require a body - previously they almost always returned 415 (inconclusive), now they can receive a real response. This only answers "does this endpoint require authentication at all?" - whether one authenticated identity can access another's specific resource is what the IDOR module below checks instead.
+   - **IDOR/BOLA** (opt-in, `sentinel.scan.idor.enabled=true`): needs two distinct identities to compare, supplied per-scan via `POST /api/scans`' `identities` field - every other module runs fully anonymous, so this is the only one that requires setup. When it sees a `POST` to a top-level collection (e.g. `/aquariums`), it creates a resource as identity A and reads the new id out of the JSON response; when it later sees a top-level item URL for that same collection (e.g. `/aquariums/{id}`), it substitutes the id A actually created and repeats the request as identity B. A 2xx response means B could access or modify a resource it doesn't own - reported as `IDOR` (CRITICAL for a mutating verb, HIGH otherwise); a 401/403/404 is the correct, secure outcome and produces no finding. v1 only implements this high-confidence, provable-ownership case (nested resources, e.g. `/aquariums/{id}/inhabitants/{inhabitantId}`, are out of scope - it's ambiguous which identity should be considered their owner), and stays silent for a collection whose create step wasn't observed in that same scan rather than guessing.
    - **Brute Force**: on any `POST` endpoint shaped like a login (a JSON body, or form/query parameters, with both a password-like and a username/email-like field), tries a short list of common/default credential pairs (`admin`/`admin`, `admin`/`password`, `root`/`root`, ...). If one is accepted, it's reported as `WEAK_CREDENTIALS` (CRITICAL). Independently, if the target never responds with 429 (Too Many Requests) or 423 (Locked) across the whole attempt budget, it's reported as `MISSING_BRUTE_FORCE_PROTECTION` (LOW) - worded cautiously, since a small fixed attempt count not tripping a lockout doesn't prove one doesn't exist at a higher threshold. Kept deliberately small and fixed (`sentinel.scan.brute-force.max-attempts`, default 8) rather than an exhaustive wordlist, to keep a scan fast and avoid hammering a real login endpoint.
    - **Security Misconfiguration**: three independent, read-only checks on every `GET` endpoint's ordinary successful response - no fuzzing, so it runs safely on write endpoints' `GET` counterparts too. (1) **Missing security headers**: flags a response lacking `X-Content-Type-Options`, `X-Frame-Options`, or `Content-Security-Policy` (plus `Strict-Transport-Security` when the target is HTTPS) as `MISSING_SECURITY_HEADERS` (LOW). (2) **Permissive CORS**: sends one extra request carrying a hostile `Origin` header; if the response reflects it back verbatim (or answers with a bare `*`) in `Access-Control-Allow-Origin`, it's `PERMISSIVE_CORS` - HIGH if paired with `Access-Control-Allow-Credentials: true` (a real, exploitable cross-origin credential leak), MEDIUM otherwise. (3) **Server banner disclosure**: flags a `Server` header containing a version number, or any `X-Powered-By` header at all, as `SERVER_BANNER_DISCLOSURE` (LOW) - both make it trivial for an attacker to look up known CVEs for that exact version.
    - **XSS**: fuzzes each discovered parameter with a handful of classic markers (`<script>alert('sentinel-xss')</script>` and variants) and checks whether the exact payload comes back unescaped in the response body - a plain substring match, reliable here because the markers are synthetic strings unlikely to appear in legitimate content. Unescaped reflection alone doesn't prove exploitability: a browser only executes it if the response is actually rendered as HTML, so the finding is split by how the response identifies itself. `Content-Type` missing or containing `html` means a browser could plausibly render the body directly - a real, exploitable `REFLECTED_XSS` (HIGH). Anything else (JSON, plain text, ...) - the common case for the JSON APIs this tool mostly targets, where `<script>` inside a JSON string value is inert - is downgraded to `UNSANITIZED_INPUT_REFLECTION` (LOW): a genuine missing-output-encoding defect, but not one this response alone turns into script execution.
    - **Rate Limit**: fires a burst of back-to-back requests (`sentinel.scan.rate-limit.burst-size`, default 130) at each `GET` endpoint and checks whether the target ever throttles (429/423). If it never does, reports `MISSING_RATE_LIMITING` (LOW), worded with the same caution as the brute-force protection check. The burst needs to exceed the target's actual rate-limit capacity to be a meaningful test - raise `sentinel.scan.rate-limit.burst-size` (or `SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE` via `.env`) if you know or suspect it allows more than the default before throttling. `GET`-only and read-only by construction: bursting a state-changing verb would amplify its side effects far more than the one-off calls the other modules make. Ordered to run strictly last among all modules, since its deliberate burst can exhaust a shared per-IP rate-limit bucket that covers every route, not just the one being bursted.
 3. **Report**: JSON with every finding (endpoint, parameter, payload, evidence, recommendation, severity), a summary broken down **by severity and by issue type**, a numeric risk score alongside the qualitative rating, and a `narrative` field with a human-readable summary.
-
-Modules planned for future iterations: IDOR/BOLA with multiple identities.
 
 ## Quick start
 
@@ -88,6 +87,22 @@ curl -X POST http://localhost:8080/api/scans \
   -d '{"targetUrl": "http://localhost:9090"}'
 ```
 
+**Optional: two identities for the IDOR module**
+
+```bash
+curl -X POST http://localhost:8080/api/scans \
+  -H "Content-Type: application/json" \
+  -d '{
+    "targetUrl": "http://localhost:9090",
+    "identities": {
+      "a": { "header": "Authorization", "value": "Bearer <tokenForUserA>" },
+      "b": { "header": "Authorization", "value": "Bearer <tokenForUserB>" }
+    }
+  }'
+```
+
+Sentinel never generates or discovers these tokens - supply two already valid for the target. Omit `identities` entirely (the default) for a fully anonymous scan, same as before; the IDOR module (also opt-in, `sentinel.scan.idor.enabled=true`) stays a no-op without both.
+
 Response (example):
 
 ```json
@@ -111,7 +126,7 @@ Response (example):
 }
 ```
 
-Each finding also carries a `module` field (`sql-injection`, `missing-authentication`, `brute-force`, `security-misconfiguration`, `xss`, `rate-limit`) identifying which attack module produced it. `findingsByModule` is the same findings, grouped into one section per module (in the order the modules ran) - useful for a report broken down by attack type without re-grouping `findings` yourself. A module that reported nothing has no key there at all, rather than an empty array.
+Each finding also carries a `module` field (`sql-injection`, `missing-authentication`, `brute-force`, `security-misconfiguration`, `xss`, `rate-limit`, `idor`) identifying which attack module produced it. `findingsByModule` is the same findings, grouped into one section per module (in the order the modules ran) - useful for a report broken down by attack type without re-grouping `findings` yourself. A module that reported nothing has no key there at all, rather than an empty array.
 
 **`summary.possiblyRateLimited`**: a single module fuzzing many parameters across many endpoints (e.g. the SQL injection module trying several payloads per query parameter) can, by itself, generate enough requests to trip a real target's rate limiter well before the rest of the scan runs - every module tested afterwards then sees 429/423 instead of a real response, and an "all clean" report can actually mean "mostly untested," not "actually secure." Sentinel tracks the fraction of throttled responses across the whole scan; once at least 10 requests were made and 15% or more came back throttled, `possiblyRateLimited` is set to `true` and the `narrative` gets an explicit caveat (prefixed `WARNING:`) naming the exact ratio - read findings from a flagged scan as "no vulnerabilities found among the parts of the target that responded normally," not as a clean bill of health.
 
@@ -147,8 +162,9 @@ Properties in `src/main/resources/application.properties` (overridable via envir
 | `sentinel.scan.xss.enabled` | `true` | Enables/disables the XSS module |
 | `sentinel.scan.rate-limit.enabled` | `true` | Enables/disables the Rate Limit module |
 | `sentinel.scan.rate-limit.burst-size` | `130` | Number of back-to-back requests fired at each `GET` endpoint before concluding no throttling kicked in. Must exceed the target's real rate-limit capacity to be a meaningful test |
+| `sentinel.scan.idor.enabled` | `false` | Enables the IDOR/BOLA module. Unlike every other module, it defaults to **disabled**: it's meaningless without the two identities supplied via `POST /api/scans`' `identities` field |
 
-Every future attack module (IDOR/BOLA, ...) will follow the same `sentinel.scan.<module>.enabled` convention.
+Every future attack module will follow the same `sentinel.scan.<module>.enabled` convention.
 
 ## Risk metric
 

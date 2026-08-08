@@ -102,10 +102,7 @@ public class SentinelHttpClient {
      * OpenAPI spec, which can declare any of these verbs.
      */
     public HttpResponseData exchange(HttpMethod method, String url, Map<String, String> params) throws IOException, InterruptedException {
-        if (BODY_METHODS.contains(method)) {
-            return sendWithForm(method, url, params);
-        }
-        return sendWithoutBody(method, appendQuery(url, params));
+        return exchange(method, url, params, null, Map.of());
     }
 
     /**
@@ -117,10 +114,24 @@ public class SentinelHttpClient {
      * {@link #exchange(HttpMethod, String, Map)} when {@code jsonBody} is null.
      */
     public HttpResponseData exchange(HttpMethod method, String url, Map<String, String> queryParams, String jsonBody) throws IOException, InterruptedException {
-        if (jsonBody == null || !BODY_METHODS.contains(method)) {
-            return exchange(method, url, queryParams);
+        return exchange(method, url, queryParams, jsonBody, Map.of());
+    }
+
+    /**
+     * Most general form: same routing as the other {@code exchange} overloads (query string for
+     * body-less verbs, form/JSON body for verbs that carry one), plus a set of caller-supplied
+     * headers merged in after the base ones - e.g. an {@code Authorization} header for one of
+     * the two identities the IDOR module compares. A header here with the same name as a base
+     * one (User-Agent, Content-Type) is added alongside it rather than replacing it.
+     */
+    public HttpResponseData exchange(HttpMethod method, String url, Map<String, String> queryParams, String jsonBody, Map<String, String> extraHeaders) throws IOException, InterruptedException {
+        if (jsonBody != null && BODY_METHODS.contains(method)) {
+            return sendWithJsonBody(method, appendQuery(url, queryParams), jsonBody, extraHeaders);
         }
-        return sendWithJsonBody(method, appendQuery(url, queryParams), jsonBody);
+        if (BODY_METHODS.contains(method)) {
+            return sendWithForm(method, url, queryParams, extraHeaders);
+        }
+        return sendWithoutBody(method, appendQuery(url, queryParams), extraHeaders);
     }
 
     private String appendQuery(String url, Map<String, String> params) {
@@ -130,32 +141,40 @@ public class SentinelHttpClient {
     }
 
     private HttpResponseData sendWithoutBody(HttpMethod method, String url) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+        return sendWithoutBody(method, url, Map.of());
+    }
+
+    private HttpResponseData sendWithoutBody(HttpMethod method, String url, Map<String, String> extraHeaders) throws IOException, InterruptedException {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
                 .timeout(requestTimeout)
-                .header("User-Agent", userAgent)
-                .method(method.name(), HttpRequest.BodyPublishers.noBody())
-                .build();
+                .header("User-Agent", userAgent);
+        extraHeaders.forEach(builder::header);
+        HttpRequest request = builder.method(method.name(), HttpRequest.BodyPublishers.noBody()).build();
         return send(request);
     }
 
     private HttpResponseData sendWithForm(HttpMethod method, String url, Map<String, String> formParams) throws IOException, InterruptedException {
+        return sendWithForm(method, url, formParams, Map.of());
+    }
+
+    private HttpResponseData sendWithForm(HttpMethod method, String url, Map<String, String> formParams, Map<String, String> extraHeaders) throws IOException, InterruptedException {
         String body = encodeForm(formParams);
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
                 .timeout(requestTimeout)
                 .header("User-Agent", userAgent)
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .method(method.name(), HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                .build();
+                .header("Content-Type", "application/x-www-form-urlencoded");
+        extraHeaders.forEach(builder::header);
+        HttpRequest request = builder.method(method.name(), HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
         return send(request);
     }
 
-    private HttpResponseData sendWithJsonBody(HttpMethod method, String url, String jsonBody) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+    private HttpResponseData sendWithJsonBody(HttpMethod method, String url, String jsonBody, Map<String, String> extraHeaders) throws IOException, InterruptedException {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
                 .timeout(requestTimeout)
                 .header("User-Agent", userAgent)
-                .header("Content-Type", "application/json")
-                .method(method.name(), HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
-                .build();
+                .header("Content-Type", "application/json");
+        extraHeaders.forEach(builder::header);
+        HttpRequest request = builder.method(method.name(), HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8)).build();
         return send(request);
     }
 

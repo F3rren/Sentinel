@@ -8,6 +8,7 @@ import com.f3rren.sentinel.http.RequestStats;
 import com.f3rren.sentinel.http.SentinelHttpClient;
 import com.f3rren.sentinel.model.Endpoint;
 import com.f3rren.sentinel.model.Finding;
+import com.f3rren.sentinel.model.ScanContext;
 import com.f3rren.sentinel.model.ScanReport;
 import com.f3rren.sentinel.report.ReportFileWriter;
 import com.f3rren.sentinel.report.ReportGenerator;
@@ -112,6 +113,10 @@ public class ScanService {
     }
 
     public ScanReport runScan(String rawTargetUrl) {
+        return runScan(rawTargetUrl, ScanContext.EMPTY);
+    }
+
+    public ScanReport runScan(String rawTargetUrl, ScanContext context) {
         String targetUrl = normalizeTargetUrl(rawTargetUrl);
         Instant startedAt = Instant.now();
 
@@ -161,12 +166,17 @@ public class ScanService {
         httpClient.resetRequestStats();
         List<Finding> findings = new ArrayList<>();
         for (AttackModule module : attackModules) {
-            for (Endpoint endpoint : endpointsToScan) {
-                try {
-                    findings.addAll(module.scan(endpoint));
-                } catch (Exception e) {
-                    log.warn("Attack module {} failed on {} {}: {}", module.name(), endpoint.method(), endpoint.url(), e.getMessage());
+            module.beginScan(context);
+            try {
+                for (Endpoint endpoint : endpointsToScan) {
+                    try {
+                        findings.addAll(module.scan(endpoint));
+                    } catch (Exception e) {
+                        log.warn("Attack module {} failed on {} {}: {}", module.name(), endpoint.method(), endpoint.url(), e.getMessage());
+                    }
                 }
+            } finally {
+                module.endScan();
             }
         }
         RequestStats requestStats = httpClient.requestStats();
