@@ -32,10 +32,13 @@ import java.util.UUID;
  * more complete and reliable source than crawling HTML, for any project with Swagger wired up
  * (springdoc, springfox, or a hand-served swagger.json/openapi.json).
  * <p>
- * API gateways typically don't serve a single spec of their own: they aggregate one spec per
- * downstream service and expose the list via springdoc's {@code /v3/api-docs/swagger-config}
- * or springfox's {@code /swagger-resources}. When no single spec is found, this service also
- * follows that aggregation so the whole surface behind the gateway gets discovered.
+ * API gateways typically aggregate one spec per downstream service and expose the list via
+ * springdoc's {@code /v3/api-docs/swagger-config} or springfox's {@code /swagger-resources}.
+ * That aggregation is tried <em>first</em>, before a single spec: a gateway can easily have a
+ * small number of endpoints of its own (health checks, a login controller, ...) in addition to
+ * everything it fronts, and a single spec found there would otherwise "look like" the whole API
+ * and short-circuit discovery - silently missing the much larger surface behind it. Only when
+ * no aggregator is found does this service fall back to looking for a single spec directly.
  */
 @Service
 public class OpenApiDiscoveryService {
@@ -70,11 +73,16 @@ public class OpenApiDiscoveryService {
         if (origin == null) {
             return Optional.empty();
         }
-        Optional<OpenApiDiscoveryResult> singleSpec = discoverSingleSpec(origin);
-        if (singleSpec.isPresent()) {
-            return singleSpec;
+        // Aggregator first, not the reverse: a gateway that also happens to expose its own
+        // small local spec (e.g. a login endpoint living on the gateway itself, alongside the
+        // real business API behind it) would otherwise "look like" a complete, valid single
+        // spec and short-circuit discovery there - silently missing everything actually behind
+        // the gateway. An aggregator, when present, is always the more complete picture.
+        Optional<OpenApiDiscoveryResult> aggregated = discoverAggregatedSpecs(origin);
+        if (aggregated.isPresent()) {
+            return aggregated;
         }
-        return discoverAggregatedSpecs(origin);
+        return discoverSingleSpec(origin);
     }
 
     private Optional<OpenApiDiscoveryResult> discoverSingleSpec(String origin) {

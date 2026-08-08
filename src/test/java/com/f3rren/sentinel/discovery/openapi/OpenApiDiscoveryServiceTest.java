@@ -291,6 +291,43 @@ class OpenApiDiscoveryServiceTest {
     }
 
     @Test
+    void prefersTheAggregatorOverAGatewaysOwnSmallLocalSpec() throws Exception {
+        // A gateway that also serves a handful of its own endpoints (e.g. a login controller
+        // living directly on the gateway) has a small but perfectly valid /v3/api-docs of its
+        // own. That must not short-circuit discovery before the aggregator is tried - the real
+        // regression this guards: the gateway's own spec "looked like" the whole API and
+        // Sentinel used to stop right there, missing every service actually behind it.
+        String gatewaysOwnSpec = """
+                {
+                  "openapi": "3.0.1",
+                  "paths": {
+                    "/auth/login": {
+                      "post": {}
+                    }
+                  }
+                }
+                """;
+        when(httpClient.get(anyString())).thenAnswer(invocation -> {
+            String url = invocation.getArgument(0);
+            return switch (url) {
+                case "http://localhost:8080/v3/api-docs" -> new HttpResponseData(200, gatewaysOwnSpec, 5);
+                case "http://localhost:8080/v3/api-docs/swagger-config" -> new HttpResponseData(200, SWAGGER_CONFIG, 5);
+                case "http://localhost:8080/aquariums-service/v3/api-docs" -> new HttpResponseData(200, SERVICE_A_SPEC, 5);
+                case "http://localhost:8080/species-service/v3/api-docs" -> new HttpResponseData(200, SERVICE_B_SPEC, 5);
+                default -> new HttpResponseData(404, "", 5);
+            };
+        });
+
+        OpenApiDiscoveryService service = new OpenApiDiscoveryService(httpClient);
+        Optional<OpenApiDiscoveryResult> result = service.discover("http://localhost:8080");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().specUrl()).isEqualTo("http://localhost:8080/v3/api-docs/swagger-config");
+        assertThat(result.get().endpoints()).hasSize(2);
+        assertThat(result.get().endpoints()).noneMatch(e -> e.url().endsWith("/auth/login"));
+    }
+
+    @Test
     void discoversEndpointsThroughSpringfoxSwaggerResourcesArray() throws Exception {
         when(httpClient.get(anyString())).thenAnswer(invocation -> {
             String url = invocation.getArgument(0);
