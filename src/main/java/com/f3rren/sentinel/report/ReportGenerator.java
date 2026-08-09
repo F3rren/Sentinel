@@ -1,5 +1,6 @@
 package com.f3rren.sentinel.report;
 
+import com.f3rren.sentinel.http.RequestStats;
 import com.f3rren.sentinel.model.Finding;
 import com.f3rren.sentinel.model.ScanReport;
 import com.f3rren.sentinel.model.ScanSummary;
@@ -11,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -39,16 +41,41 @@ public class ReportGenerator {
             Severity.CRITICAL, 40
     );
 
+    // Below this many requests, a handful of 429s could just be noise (a couple of endpoints
+    // genuinely rate-limited on purpose) rather than the target throttling the whole scan - not
+    // worth a caveat on a report that barely made any requests to begin with.
+    private static final int MIN_REQUESTS_FOR_RATE_LIMIT_CHECK = 10;
+    // Above this fraction of throttled responses, treat the scan as compromised enough that
+    // findings elsewhere in the report can't be trusted at face value.
+    private static final double RATE_LIMIT_THROTTLE_RATIO_THRESHOLD = 0.15;
+
     public ScanReport buildReport(String id, String targetUrl, Instant startedAt, Instant finishedAt,
                                    int endpointsDiscovered, int endpointsTested, String openApiSpecUrl,
-                                   List<Finding> findings) {
-        ScanSummary summary = summarize(findings);
+                                   List<Finding> findings, RequestStats requestStats) {
+        boolean possiblyRateLimited = requestStats.total() >= MIN_REQUESTS_FOR_RATE_LIMIT_CHECK
+                && requestStats.throttledRatio() >= RATE_LIMIT_THROTTLE_RATIO_THRESHOLD;
+        ScanSummary summary = summarize(findings, possiblyRateLimited);
+        Map<String, List<Finding>> findingsByModule = groupByModule(findings);
         long durationMillis = Duration.between(startedAt, finishedAt).toMillis();
-        String narrative = buildNarrative(targetUrl, durationMillis, endpointsDiscovered, endpointsTested, openApiSpecUrl, summary);
-        return new ScanReport(id, targetUrl, startedAt, finishedAt, durationMillis, endpointsDiscovered, endpointsTested, openApiSpecUrl, findings, summary, narrative);
+        String narrative = buildNarrative(targetUrl, durationMillis, endpointsDiscovered, endpointsTested,
+                openApiSpecUrl, summary, requestStats);
+        return new ScanReport(id, targetUrl, startedAt, finishedAt, durationMillis, endpointsDiscovered, endpointsTested,
+                openApiSpecUrl, findings, findingsByModule, summary, narrative);
     }
 
-    private ScanSummary summarize(List<Finding> findings) {
+    /**
+     * The flat {@code findings} list stays for simple full iteration; this is the same data
+     * organized into one section per attack module, in the order modules actually ran (a
+     * {@link LinkedHashMap} preserves first-seen order, and {@code ScanService} runs one module
+     * across every endpoint before the next starts, so findings already arrive grouped) - readable
+     * directly from the report JSON without the caller re-grouping by {@link Finding#module()}.
+     */
+    private Map<String, List<Finding>> groupByModule(List<Finding> findings) {
+        return findings.stream()
+                .collect(Collectors.groupingBy(Finding::module, LinkedHashMap::new, Collectors.toList()));
+    }
+
+    private ScanSummary summarize(List<Finding> findings, boolean possiblyRateLimited) {
         Map<Severity, Integer> countsBySeverity = new EnumMap<>(Severity.class);
         for (Severity severity : Severity.values()) {
             countsBySeverity.put(severity, 0);
@@ -69,39 +96,40 @@ public class ReportGenerator {
                 .map(Finding::severity)
                 .max(Comparator.naturalOrder())
                 .orElse(Severity.INFO);
-        return new ScanSummary(findings.size(), countsBySeverity, countsByType, overallRisk, riskScore);
+        return new ScanSummary(findings.size(), countsBySeverity, countsByType, overallRisk, riskScore, possiblyRateLimited);
     }
 
     private String buildNarrative(String targetUrl, long durationMillis, int endpointsDiscovered,
-                                   int endpointsTested, String openApiSpecUrl, ScanSummary summary) {
+                                   int endpointsTested, String openApiSpecUrl, ScanSummary summary,
+                                   RequestStats requestStats) {
         StringBuilder narrative = new StringBuilder();
-        narrative.append("Investigazione su ").append(targetUrl)
-                .append(" completata in ").append(formatDuration(durationMillis)).append(". ");
+        narrative.append("Investigation of ").append(targetUrl)
+                .append(" completed in ").append(formatDuration(durationMillis)).append(". ");
 
         if (openApiSpecUrl != null) {
-            narrative.append("Endpoint individuati tramite spec OpenAPI/Swagger (").append(openApiSpecUrl)
+            narrative.append("Endpoints discovered via OpenAPI/Swagger spec (").append(openApiSpecUrl)
                     .append("): ").append(endpointsDiscovered).append(". ");
         } else {
-            narrative.append("Endpoint individuati tramite scansione della pagina HTML del target: ")
+            narrative.append("Endpoints discovered via HTML page scan of the target: ")
                     .append(endpointsDiscovered).append(". ");
         }
 
         if (endpointsTested < endpointsDiscovered) {
-            narrative.append("Testati effettivamente ").append(endpointsTested)
-                    .append(" (filtro sui metodi HTTP e/o limite massimo endpoint configurati). ");
+            narrative.append("Actually tested ").append(endpointsTested)
+                    .append(" (configured HTTP method filter and/or max-endpoint limit). ");
         }
 
         if (summary.totalFindings() == 0) {
-            narrative.append("Nessuna vulnerabilità rilevata.");
+            narrative.append("No vulnerabilities detected.");
         } else {
             String severityBreakdown = summary.countsBySeverity().entrySet().stream()
                     .filter(entry -> entry.getValue() > 0)
                     .sorted(Comparator.comparingInt((Map.Entry<Severity, Integer> entry) -> entry.getKey().ordinal()).reversed())
                     .map(entry -> entry.getValue() + " " + entry.getKey())
                     .collect(Collectors.joining(", "));
-            narrative.append("Rilevate ").append(summary.totalFindings())
-                    .append(" vulnerabilità (rischio complessivo: ").append(summary.overallRisk())
-                    .append(", punteggio di rischio: ").append(summary.riskScore())
+            narrative.append("Detected ").append(summary.totalFindings())
+                    .append(" vulnerabilities (overall risk: ").append(summary.overallRisk())
+                    .append(", risk score: ").append(summary.riskScore())
                     .append("): ").append(severityBreakdown).append(". ");
 
             String typeBreakdown = summary.countsByType().entrySet().stream()
@@ -109,7 +137,18 @@ public class ReportGenerator {
                     .sorted(Comparator.comparingInt((Map.Entry<VulnerabilityType, Integer> entry) -> entry.getValue()).reversed())
                     .map(entry -> entry.getValue() + " " + entry.getKey())
                     .collect(Collectors.joining(", "));
-            narrative.append("Per tipologia: ").append(typeBreakdown).append(".");
+            narrative.append("By type: ").append(typeBreakdown).append(".");
+        }
+
+        if (summary.possiblyRateLimited()) {
+            narrative.append(" WARNING: ")
+                    .append(Math.round(requestStats.throttledRatio() * 100))
+                    .append("% of requests (").append(requestStats.throttled()).append(" out of ")
+                    .append(requestStats.total())
+                    .append(") received a throttling response (429/423) during the scan itself - "
+                            + "the target started limiting Sentinel before every endpoint could be "
+                            + "tested reliably. The result above is partial: the absence of "
+                            + "vulnerabilities is not guaranteed for endpoints tested after throttling began.");
         }
         return narrative.toString();
     }
@@ -118,6 +157,6 @@ public class ReportGenerator {
         if (durationMillis < 1000) {
             return durationMillis + " ms";
         }
-        return String.format(Locale.ITALIAN, "%.1f secondi", durationMillis / 1000.0);
+        return String.format(Locale.US, "%.1f seconds", durationMillis / 1000.0);
     }
 }

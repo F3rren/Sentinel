@@ -4,6 +4,8 @@ import com.f3rren.sentinel.attack.AttackModule;
 import com.f3rren.sentinel.discovery.EndpointDiscoveryService;
 import com.f3rren.sentinel.discovery.openapi.OpenApiDiscoveryResult;
 import com.f3rren.sentinel.discovery.openapi.OpenApiDiscoveryService;
+import com.f3rren.sentinel.http.RequestStats;
+import com.f3rren.sentinel.http.SentinelHttpClient;
 import com.f3rren.sentinel.model.Endpoint;
 import com.f3rren.sentinel.model.EndpointParam;
 import com.f3rren.sentinel.model.ScanReport;
@@ -43,6 +45,9 @@ class ScanServiceTest {
     @Mock
     private ReportFileWriter reportFileWriter;
 
+    @Mock
+    private SentinelHttpClient httpClient;
+
     private final ReportGenerator reportGenerator = new ReportGenerator();
 
     private Endpoint getEndpoint;
@@ -59,6 +64,7 @@ class ScanServiceTest {
         // Not every test ends up calling attackModule.scan() (e.g. zero endpoints discovered),
         // so this default stub is legitimately unused in those cases.
         lenient().when(attackModule.scan(any())).thenReturn(List.of());
+        lenient().when(httpClient.requestStats()).thenReturn(new RequestStats(0, 0));
     }
 
     @Test
@@ -68,7 +74,7 @@ class ScanServiceTest {
                         List.of(getEndpoint, postEndpoint, deleteEndpoint))));
 
         ScanService scanService = new ScanService(openApiDiscoveryService, discoveryService,
-                List.of(attackModule), reportGenerator, reportFileWriter, 25, "GET");
+                List.of(attackModule), reportGenerator, reportFileWriter, httpClient, 25, "GET");
 
         ScanReport report = scanService.runScan("http://localhost:8080");
 
@@ -86,7 +92,7 @@ class ScanServiceTest {
                         List.of(getEndpoint, postEndpoint, deleteEndpoint))));
 
         ScanService scanService = new ScanService(openApiDiscoveryService, discoveryService,
-                List.of(attackModule), reportGenerator, reportFileWriter, 25, "GET,POST,PUT,PATCH,DELETE");
+                List.of(attackModule), reportGenerator, reportFileWriter, httpClient, 25, "GET,POST,PUT,PATCH,DELETE");
 
         ScanReport report = scanService.runScan("http://localhost:8080");
 
@@ -102,7 +108,7 @@ class ScanServiceTest {
                         List.of(getEndpoint, postEndpoint))));
 
         ScanService scanService = new ScanService(openApiDiscoveryService, discoveryService,
-                List.of(attackModule), reportGenerator, reportFileWriter, 25, "not-a-real-method, also-fake");
+                List.of(attackModule), reportGenerator, reportFileWriter, httpClient, 25, "not-a-real-method, also-fake");
 
         scanService.runScan("http://localhost:8080");
 
@@ -122,7 +128,7 @@ class ScanServiceTest {
         // Cap of 1, but only GET is allowed: the single slot must go to the GET endpoint,
         // not be wasted on whichever endpoint happened to come first in discovery order.
         ScanService scanService = new ScanService(openApiDiscoveryService, discoveryService,
-                List.of(attackModule), reportGenerator, reportFileWriter, 1, "GET");
+                List.of(attackModule), reportGenerator, reportFileWriter, httpClient, 1, "GET");
 
         ScanReport report = scanService.runScan("http://localhost:8080");
 
@@ -137,7 +143,7 @@ class ScanServiceTest {
         when(openApiDiscoveryService.discover(any())).thenReturn(Optional.empty());
 
         ScanService scanService = new ScanService(openApiDiscoveryService, discoveryService,
-                List.of(attackModule), reportGenerator, reportFileWriter, 25, "GET,POST,PUT,PATCH,DELETE");
+                List.of(attackModule), reportGenerator, reportFileWriter, httpClient, 25, "GET,POST,PUT,PATCH,DELETE");
 
         // No endpoints discovered at all in this scenario, so the module never actually runs,
         // but the report must still be tracked as "latest" regardless of outcome.

@@ -11,6 +11,7 @@ import com.f3rren.sentinel.model.VulnerabilityType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -33,17 +34,17 @@ import java.util.UUID;
  * {@code sentinel.scan.<module>.enabled} convention.
  */
 @Component
+@Order(0)
 @ConditionalOnProperty(prefix = "sentinel.scan.sql-injection", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class SqlInjectionScanner implements AttackModule {
 
     private static final Logger log = LoggerFactory.getLogger(SqlInjectionScanner.class);
 
     private static final String RECOMMENDATION =
-            "Utilizzare sempre query parametrizzate (prepared statement) o un ORM con binding "
-            + "sicuro dei parametri, evitando la concatenazione di input utente nelle query SQL. "
-            + "Validare e whitelistare l'input lato server, applicare il principio del privilegio "
-            + "minimo all'utente del database ed evitare di esporre stack trace o messaggi di "
-            + "errore del database in produzione.";
+            "Always use parameterized queries (prepared statements) or an ORM with safe parameter "
+            + "binding, avoiding string concatenation of user input into SQL queries. Validate and "
+            + "whitelist input server-side, apply the principle of least privilege to the database "
+            + "user, and avoid exposing stack traces or database error messages in production.";
 
     private static final List<String> ERROR_BASED_PAYLOADS = List.of(
             "'",
@@ -119,14 +120,15 @@ public class SqlInjectionScanner implements AttackModule {
             if (match.isPresent()) {
                 return Optional.of(new Finding(
                         UUID.randomUUID().toString(),
+                        name(),
                         VulnerabilityType.SQL_INJECTION_ERROR_BASED,
                         Severity.CRITICAL,
                         endpoint.url(),
                         endpoint.method().name(),
                         param.name(),
                         payload,
-                        "Il parametro '" + param.name() + "' riflette un messaggio di errore del "
-                                + "database (" + match.get().database() + ") in risposta a un payload SQL injection.",
+                        "Parameter '" + param.name() + "' reflects a database error message ("
+                                + match.get().database() + ") in response to a SQL injection payload.",
                         match.get().snippet(),
                         RECOMMENDATION
                 ));
@@ -144,6 +146,14 @@ public class SqlInjectionScanner implements AttackModule {
         HttpResponseData trueResponse = httpClient.exchange(endpoint.method(), endpoint.url(), trueParams);
         HttpResponseData falseResponse = httpClient.exchange(endpoint.method(), endpoint.url(), falseParams);
 
+        if (trueResponse.statusCode() == 429 || falseResponse.statusCode() == 429) {
+            // A 429 means the target's rate limiter reacted to Sentinel's own request volume
+            // (this same param already took a baseline + up to 8 error-based payloads before
+            // either of these two), not to the injected condition's truth value. Comparing
+            // against a throttled response would read pure throttling as a signal.
+            return Optional.empty();
+        }
+
         int baseLen = baseline.bodyOrEmpty().length();
         int trueLen = trueResponse.bodyOrEmpty().length();
         int falseLen = falseResponse.bodyOrEmpty().length();
@@ -155,20 +165,21 @@ public class SqlInjectionScanner implements AttackModule {
 
         if (statusDiffers || (trueMatchesBaselineShape && bodyDiffers)) {
             String evidence = String.format(
-                    "Lunghezza risposta - baseline: %d, condizione vera (%s): %d, condizione falsa (%s): %d, status vero/falso: %d/%d",
+                    "Response length - baseline: %d, true condition (%s): %d, false condition (%s): %d, true/false status: %d/%d",
                     baseLen, BOOLEAN_TRUE_PAYLOAD, trueLen, BOOLEAN_FALSE_PAYLOAD, falseLen,
                     trueResponse.statusCode(), falseResponse.statusCode());
             return Optional.of(new Finding(
                     UUID.randomUUID().toString(),
+                    name(),
                     VulnerabilityType.SQL_INJECTION_BOOLEAN_BASED,
                     Severity.HIGH,
                     endpoint.url(),
                     endpoint.method().name(),
                     param.name(),
                     BOOLEAN_TRUE_PAYLOAD,
-                    "Il parametro '" + param.name() + "' produce risposte diverse tra una condizione "
-                            + "booleana sempre vera e sempre falsa iniettata: possibile SQL injection "
-                            + "blind/boolean-based.",
+                    "Parameter '" + param.name() + "' produces different responses between an "
+                            + "injected always-true and always-false boolean condition: possible "
+                            + "blind/boolean-based SQL injection.",
                     evidence,
                     RECOMMENDATION
             ));

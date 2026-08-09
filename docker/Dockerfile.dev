@@ -1,0 +1,13 @@
+# Development image: runs the app straight from source via Maven instead of the
+# build-a-jar-then-copy-it multi-stage flow in Dockerfile.prod. Dependencies are resolved once
+# and cached in an image layer; source is bind-mounted by docker-compose.dev.yml, so picking up
+# a code change only needs `docker compose restart sentinel` (a few seconds) instead of a full
+# image rebuild (which re-packages the whole app). Not live class-reload - just skips the
+# rebuild-the-image step production correctness requires.
+FROM maven:3.9-eclipse-temurin-17
+WORKDIR /app
+COPY pom.xml .
+RUN mvn -q -B dependency:go-offline
+COPY src src
+EXPOSE 8080
+ENTRYPOINT ["mvn", "-q", "spring-boot:run"]

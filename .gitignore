@@ -5,9 +5,10 @@ target/
 !**/src/test/**/target/
 
 ### Environment ###
+# Real env files are ignored; the committed templates (env.example, env.dev.example, ...)
+# are dot-less on purpose so they don't match these patterns and stay tracked.
 .env
 .env.*
-!.env.example
 
 ### Scan reports (generated output, not source) ###
 /reports/

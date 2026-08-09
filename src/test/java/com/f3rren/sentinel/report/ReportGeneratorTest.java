@@ -1,5 +1,6 @@
 package com.f3rren.sentinel.report;
 
+import com.f3rren.sentinel.http.RequestStats;
 import com.f3rren.sentinel.model.Finding;
 import com.f3rren.sentinel.model.ScanReport;
 import com.f3rren.sentinel.model.Severity;
@@ -15,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ReportGeneratorTest {
 
     private final ReportGenerator reportGenerator = new ReportGenerator();
+    private static final RequestStats NO_THROTTLING = new RequestStats(0, 0);
 
     @Test
     void summarizesNoFindingsAsInfoRiskWithHtmlCrawlNarrative() {
@@ -22,7 +24,7 @@ class ReportGeneratorTest {
         Instant end = Instant.parse("2026-01-01T10:00:00.500Z");
 
         ScanReport report = reportGenerator.buildReport(
-                "scan-1", "http://localhost:8080", start, end, 3, 3, null, List.of());
+                "scan-1", "http://localhost:8080", start, end, 3, 3, null, List.of(), NO_THROTTLING);
 
         assertThat(report.summary().totalFindings()).isEqualTo(0);
         assertThat(report.summary().overallRisk()).isEqualTo(Severity.INFO);
@@ -32,11 +34,11 @@ class ReportGeneratorTest {
         assertThat(report.narrative())
                 .contains("http://localhost:8080")
                 .contains("500 ms")
-                .contains("scansione della pagina HTML")
+                .contains("HTML page scan")
                 .contains("3")
-                .contains("Nessuna vulnerabilità rilevata.")
+                .contains("No vulnerabilities detected.")
                 // all 3 discovered were also tested: no extra "tested" clause expected.
-                .doesNotContain("Testati effettivamente");
+                .doesNotContain("Actually tested");
     }
 
     @Test
@@ -45,13 +47,13 @@ class ReportGeneratorTest {
         Instant end = Instant.parse("2026-01-01T10:00:00.500Z");
 
         ScanReport report = reportGenerator.buildReport(
-                "scan-4", "http://api-gateway:8080", start, end, 46, 12, null, List.of());
+                "scan-4", "http://api-gateway:8080", start, end, 46, 12, null, List.of(), NO_THROTTLING);
 
         assertThat(report.endpointsDiscovered()).isEqualTo(46);
         assertThat(report.endpointsTested()).isEqualTo(12);
         assertThat(report.narrative())
                 .contains("46")
-                .contains("Testati effettivamente 12");
+                .contains("Actually tested 12");
     }
 
     @Test
@@ -61,11 +63,11 @@ class ReportGeneratorTest {
 
         ScanReport report = reportGenerator.buildReport(
                 "scan-2", "http://api-gateway:8080", start, end, 46, 46,
-                "http://api-gateway:8080/v3/api-docs/swagger-config", List.of());
+                "http://api-gateway:8080/v3/api-docs/swagger-config", List.of(), NO_THROTTLING);
 
         assertThat(report.narrative())
-                .contains("8,1 secondi")
-                .contains("spec OpenAPI/Swagger")
+                .contains("8.1 seconds")
+                .contains("OpenAPI/Swagger spec")
                 .contains("http://api-gateway:8080/v3/api-docs/swagger-config")
                 .contains("46");
     }
@@ -81,7 +83,7 @@ class ReportGeneratorTest {
         );
 
         ScanReport report = reportGenerator.buildReport(
-                "scan-3", "http://localhost:8080", start, end, 5, 5, null, findings);
+                "scan-3", "http://localhost:8080", start, end, 5, 5, null, findings, NO_THROTTLING);
 
         assertThat(report.summary().totalFindings()).isEqualTo(3);
         assertThat(report.summary().overallRisk()).isEqualTo(Severity.CRITICAL);
@@ -90,9 +92,9 @@ class ReportGeneratorTest {
         // 2 CRITICAL (weight 40 each) + 1 HIGH (weight 20) = 100.
         assertThat(report.summary().riskScore()).isEqualTo(100);
         assertThat(report.narrative())
-                .contains("Rilevate 3 vulnerabilità")
-                .contains("rischio complessivo: CRITICAL")
-                .contains("punteggio di rischio: 100")
+                .contains("Detected 3 vulnerabilities")
+                .contains("overall risk: CRITICAL")
+                .contains("risk score: 100")
                 // CRITICAL must be listed before HIGH: most severe first.
                 .containsPattern("2 CRITICAL.*1 HIGH");
     }
@@ -109,19 +111,88 @@ class ReportGeneratorTest {
         );
 
         ScanReport report = reportGenerator.buildReport(
-                "scan-5", "http://localhost:8080", start, end, 4, 4, null, findings);
+                "scan-5", "http://localhost:8080", start, end, 4, 4, null, findings, NO_THROTTLING);
 
         assertThat(report.summary().countsByType().get(VulnerabilityType.MISSING_AUTHENTICATION)).isEqualTo(3);
         assertThat(report.summary().countsByType().get(VulnerabilityType.SQL_INJECTION_ERROR_BASED)).isEqualTo(1);
         assertThat(report.summary().countsByType().get(VulnerabilityType.SQL_INJECTION_BOOLEAN_BASED)).isEqualTo(0);
         assertThat(report.narrative())
-                .contains("Per tipologia:")
+                .contains("By type:")
                 // most frequent type listed first.
                 .containsPattern("3 MISSING_AUTHENTICATION.*1 SQL_INJECTION_ERROR_BASED");
     }
 
+    @Test
+    void groupsFindingsByModuleInTheOrderTheyWereReported() {
+        Instant start = Instant.parse("2026-01-01T10:00:00Z");
+        Instant end = Instant.parse("2026-01-01T10:00:01Z");
+        List<Finding> findings = List.of(
+                finding("sql-injection", VulnerabilityType.SQL_INJECTION_ERROR_BASED, Severity.CRITICAL),
+                finding("missing-authentication", VulnerabilityType.MISSING_AUTHENTICATION, Severity.HIGH),
+                finding("missing-authentication", VulnerabilityType.MISSING_AUTHENTICATION, Severity.MEDIUM)
+        );
+
+        ScanReport report = reportGenerator.buildReport(
+                "scan-6", "http://localhost:8080", start, end, 3, 3, null, findings, NO_THROTTLING);
+
+        assertThat(report.findingsByModule()).hasSize(2);
+        assertThat(report.findingsByModule().get("sql-injection")).hasSize(1);
+        assertThat(report.findingsByModule().get("missing-authentication")).hasSize(2);
+        // A module that reported no findings at all simply has no key - not an empty list.
+        assertThat(report.findingsByModule()).doesNotContainKey("rate-limit");
+        // Insertion order (sql-injection first) must survive into the map's key order.
+        assertThat(report.findingsByModule().keySet()).containsExactly("sql-injection", "missing-authentication");
+    }
+
+    @Test
+    void flagsPossiblyRateLimitedAndAddsCaveatWhenThrottleRatioIsHigh() {
+        Instant start = Instant.parse("2026-01-01T10:00:00Z");
+        Instant end = Instant.parse("2026-01-01T10:00:01Z");
+
+        ScanReport report = reportGenerator.buildReport(
+                "scan-7", "http://api-gateway:8080", start, end, 46, 46, null, List.of(),
+                new RequestStats(100, 40));
+
+        assertThat(report.summary().possiblyRateLimited()).isTrue();
+        assertThat(report.narrative())
+                .contains("WARNING")
+                .contains("40%")
+                .contains("40 out of 100");
+    }
+
+    @Test
+    void doesNotFlagPossiblyRateLimitedWhenThrottleRatioIsLow() {
+        Instant start = Instant.parse("2026-01-01T10:00:00Z");
+        Instant end = Instant.parse("2026-01-01T10:00:01Z");
+
+        ScanReport report = reportGenerator.buildReport(
+                "scan-8", "http://api-gateway:8080", start, end, 46, 46, null, List.of(),
+                new RequestStats(200, 5));
+
+        assertThat(report.summary().possiblyRateLimited()).isFalse();
+        assertThat(report.narrative()).doesNotContain("WARNING");
+    }
+
+    @Test
+    void doesNotFlagPossiblyRateLimitedWhenTooFewRequestsToBeMeaningful() {
+        Instant start = Instant.parse("2026-01-01T10:00:00Z");
+        Instant end = Instant.parse("2026-01-01T10:00:01Z");
+
+        // 2 out of 3 throttled is a high ratio, but too small a sample to trust.
+        ScanReport report = reportGenerator.buildReport(
+                "scan-9", "http://api-gateway:8080", start, end, 3, 3, null, List.of(),
+                new RequestStats(3, 2));
+
+        assertThat(report.summary().possiblyRateLimited()).isFalse();
+        assertThat(report.narrative()).doesNotContain("WARNING");
+    }
+
     private Finding finding(VulnerabilityType type, Severity severity) {
-        return new Finding("id", type, severity, "http://localhost:8080/x", HttpMethod.GET.name(),
+        return finding("some-module", type, severity);
+    }
+
+    private Finding finding(String module, VulnerabilityType type, Severity severity) {
+        return new Finding("id", module, type, severity, "http://localhost:8080/x", HttpMethod.GET.name(),
                 "param", "payload", "description", "evidence", "recommendation");
     }
 }

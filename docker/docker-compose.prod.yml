@@ -1,0 +1,48 @@
+# Production environment: a hardened, long-running deployment against an authorized target.
+#
+#   cp env.prod.example .env.prod
+#   # edit .env.prod: VICTIM_NETWORK_NAME at minimum
+#   docker compose -f docker/docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# Differences from dev that actually matter here:
+#   - docker/Dockerfile.prod: multi-stage build, final image ships only a JRE + the jar (no Maven, no
+#     source), running as a dedicated non-root user.
+#   - restart: unless-stopped, and a memory/CPU ceiling, so a runaway scan can't take down the
+#     host it's running on.
+#   - No source bind-mount: the image is the artifact - a prod deployment upgrades by rebuilding
+#     and redeploying the image, not by editing files under a running container.
+#   - Every HTTP method allowed and INFO logging by default, matching a real engagement's scope
+#     instead of dev's deliberately-restricted GET-only/DEBUG defaults.
+
+services:
+  sentinel:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.prod
+    container_name: sentinel-prod
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    ports:
+      - "${SENTINEL_PORT:-8088}:8080"
+    environment:
+      SENTINEL_SCAN_MAX_ENDPOINTS: ${SENTINEL_SCAN_MAX_ENDPOINTS:-25}
+      SENTINEL_SCAN_AUTO_TARGET_URL: ${SENTINEL_SCAN_AUTO_TARGET_URL:-}
+      SENTINEL_SCAN_SQL_INJECTION_ENABLED: ${SENTINEL_SCAN_SQL_INJECTION_ENABLED:-true}
+      SENTINEL_SCAN_MISSING_AUTHENTICATION_ENABLED: ${SENTINEL_SCAN_MISSING_AUTHENTICATION_ENABLED:-true}
+      SENTINEL_SCAN_BRUTE_FORCE_ENABLED: ${SENTINEL_SCAN_BRUTE_FORCE_ENABLED:-true}
+      SENTINEL_SCAN_SECURITY_MISCONFIGURATION_ENABLED: ${SENTINEL_SCAN_SECURITY_MISCONFIGURATION_ENABLED:-true}
+      SENTINEL_SCAN_XSS_ENABLED: ${SENTINEL_SCAN_XSS_ENABLED:-true}
+      SENTINEL_SCAN_RATE_LIMIT_ENABLED: ${SENTINEL_SCAN_RATE_LIMIT_ENABLED:-true}
+      SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE: ${SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE:-130}
+      SENTINEL_SCAN_ALLOWED_HTTP_METHODS: ${SENTINEL_SCAN_ALLOWED_HTTP_METHODS:-GET,POST,PUT,PATCH,DELETE}
+      SENTINEL_LOG_HTTP_LEVEL: ${SENTINEL_LOG_HTTP_LEVEL:-INFO}
+    volumes:
+      - ../reports:/app/reports
+    networks:
+      - victim-network
+
+networks:
+  victim-network:
+    external: true
+    name: ${VICTIM_NETWORK_NAME:?Set VICTIM_NETWORK_NAME in .env.prod (copy env.prod.example)}

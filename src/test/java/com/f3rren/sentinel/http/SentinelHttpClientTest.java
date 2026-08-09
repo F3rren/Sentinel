@@ -30,11 +30,13 @@ class SentinelHttpClientTest {
     private volatile String lastQuery;
     private volatile String lastBody;
     private volatile String lastContentType;
+    private volatile String lastUserAgent;
 
     @BeforeEach
     void startServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/echo", this::echoHandler);
+        server.createContext("/throttled", exchange -> respondWithStatus(exchange, 429));
         server.start();
         baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
         httpClient = new SentinelHttpClient("Sentinel-Test/1.0", 5000, 3000);
@@ -43,6 +45,17 @@ class SentinelHttpClientTest {
     @AfterEach
     void stopServer() {
         server.stop(0);
+    }
+
+    @Test
+    void configuredUserAgentReachesTheServerUnaltered() throws Exception {
+        // The gateway can block requests by User-Agent (bot protection). The JDK HttpClient sets
+        // its own default "Java-http-client/<version>" User-Agent when none is provided; if the
+        // explicit header set here were ever lost or overridden, Sentinel's own traffic could be
+        // silently rejected before it even reaches the target's business logic.
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/echo", Map.of());
+
+        assertThat(lastUserAgent).isEqualTo("Sentinel-Test/1.0");
     }
 
     @Test
@@ -129,10 +142,41 @@ class SentinelHttpClientTest {
         assertThat(lastBody).isEmpty();
     }
 
+    @Test
+    void requestStatsCountTotalAndThrottledResponsesSeparately() throws Exception {
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/echo", Map.of());
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/throttled", Map.of());
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/throttled", Map.of());
+
+        RequestStats stats = httpClient.requestStats();
+
+        assertThat(stats.total()).isEqualTo(3);
+        assertThat(stats.throttled()).isEqualTo(2);
+        assertThat(stats.throttledRatio()).isCloseTo(2.0 / 3, org.assertj.core.data.Offset.offset(0.0001));
+    }
+
+    @Test
+    void resetRequestStatsClearsCounters() throws Exception {
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/throttled", Map.of());
+
+        httpClient.resetRequestStats();
+        httpClient.exchange(HttpMethod.GET, baseUrl + "/echo", Map.of());
+
+        RequestStats stats = httpClient.requestStats();
+        assertThat(stats.total()).isEqualTo(1);
+        assertThat(stats.throttled()).isZero();
+    }
+
+    private void respondWithStatus(HttpExchange exchange, int status) throws IOException {
+        exchange.sendResponseHeaders(status, -1);
+        exchange.getResponseBody().close();
+    }
+
     private void echoHandler(HttpExchange exchange) throws IOException {
         lastMethod = exchange.getRequestMethod();
         lastQuery = exchange.getRequestURI().getRawQuery();
         lastContentType = exchange.getRequestHeaders().getFirst("Content-Type");
+        lastUserAgent = exchange.getRequestHeaders().getFirst("User-Agent");
         try (InputStream is = exchange.getRequestBody()) {
             lastBody = new String(is.readAllBytes(), StandardCharsets.UTF_8);
         }

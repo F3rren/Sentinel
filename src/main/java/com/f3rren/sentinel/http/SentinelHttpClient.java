@@ -1,5 +1,7 @@
 package com.f3rren.sentinel.http;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
@@ -11,8 +13,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -23,11 +28,18 @@ import java.util.stream.Collectors;
 @Component
 public class SentinelHttpClient {
 
+    private static final Logger log = LoggerFactory.getLogger(SentinelHttpClient.class);
+
     private static final Set<HttpMethod> BODY_METHODS = Set.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH);
+
+    /** Statuses a well-behaved rate limiter answers with once it starts throttling a client. */
+    public static final Set<Integer> THROTTLE_STATUS_CODES = Set.of(429, 423);
 
     private final HttpClient httpClient;
     private final String userAgent;
     private final Duration requestTimeout;
+    private final AtomicInteger totalRequests = new AtomicInteger();
+    private final AtomicInteger throttledResponses = new AtomicInteger();
 
     public SentinelHttpClient(
             @Value("${sentinel.scan.user-agent:Sentinel-Scanner/0.1 (+authorized-security-testing)}") String userAgent,
@@ -42,8 +54,41 @@ public class SentinelHttpClient {
                 .build();
     }
 
+    /**
+     * Clears the request/throttle counters {@link #requestStats()} reports. Called at the start
+     * of a scan's attack phase so the resulting stats reflect only that scan's own traffic, not
+     * discovery calls or any earlier scan.
+     */
+    public void resetRequestStats() {
+        totalRequests.set(0);
+        throttledResponses.set(0);
+    }
+
+    /**
+     * How many requests have gone out, and how many came back throttled, since the last
+     * {@link #resetRequestStats()}.
+     */
+    public RequestStats requestStats() {
+        return new RequestStats(totalRequests.get(), throttledResponses.get());
+    }
+
     public HttpResponseData get(String url) throws IOException, InterruptedException {
         return sendWithoutBody(HttpMethod.GET, url);
+    }
+
+    /**
+     * A GET carrying one extra caller-supplied header - e.g. an {@code Origin} header to probe
+     * how the target's CORS policy reacts to a specific value, which none of the other methods
+     * here support since they only ever set {@code User-Agent} (and a content type for bodies).
+     */
+    public HttpResponseData getWithHeader(String url, String headerName, String headerValue) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(requestTimeout)
+                .header("User-Agent", userAgent)
+                .header(headerName, headerValue)
+                .GET()
+                .build();
+        return send(request);
     }
 
     public HttpResponseData postForm(String url, Map<String, String> formParams) throws IOException, InterruptedException {
@@ -57,10 +102,7 @@ public class SentinelHttpClient {
      * OpenAPI spec, which can declare any of these verbs.
      */
     public HttpResponseData exchange(HttpMethod method, String url, Map<String, String> params) throws IOException, InterruptedException {
-        if (BODY_METHODS.contains(method)) {
-            return sendWithForm(method, url, params);
-        }
-        return sendWithoutBody(method, appendQuery(url, params));
+        return exchange(method, url, params, null, Map.of());
     }
 
     /**
@@ -72,10 +114,24 @@ public class SentinelHttpClient {
      * {@link #exchange(HttpMethod, String, Map)} when {@code jsonBody} is null.
      */
     public HttpResponseData exchange(HttpMethod method, String url, Map<String, String> queryParams, String jsonBody) throws IOException, InterruptedException {
-        if (jsonBody == null || !BODY_METHODS.contains(method)) {
-            return exchange(method, url, queryParams);
+        return exchange(method, url, queryParams, jsonBody, Map.of());
+    }
+
+    /**
+     * Most general form: same routing as the other {@code exchange} overloads (query string for
+     * body-less verbs, form/JSON body for verbs that carry one), plus a set of caller-supplied
+     * headers merged in after the base ones - e.g. an {@code Authorization} header for one of
+     * the two identities the IDOR module compares. A header here with the same name as a base
+     * one (User-Agent, Content-Type) is added alongside it rather than replacing it.
+     */
+    public HttpResponseData exchange(HttpMethod method, String url, Map<String, String> queryParams, String jsonBody, Map<String, String> extraHeaders) throws IOException, InterruptedException {
+        if (jsonBody != null && BODY_METHODS.contains(method)) {
+            return sendWithJsonBody(method, appendQuery(url, queryParams), jsonBody, extraHeaders);
         }
-        return sendWithJsonBody(method, appendQuery(url, queryParams), jsonBody);
+        if (BODY_METHODS.contains(method)) {
+            return sendWithForm(method, url, queryParams, extraHeaders);
+        }
+        return sendWithoutBody(method, appendQuery(url, queryParams), extraHeaders);
     }
 
     private String appendQuery(String url, Map<String, String> params) {
@@ -85,40 +141,78 @@ public class SentinelHttpClient {
     }
 
     private HttpResponseData sendWithoutBody(HttpMethod method, String url) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+        return sendWithoutBody(method, url, Map.of());
+    }
+
+    private HttpResponseData sendWithoutBody(HttpMethod method, String url, Map<String, String> extraHeaders) throws IOException, InterruptedException {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
                 .timeout(requestTimeout)
-                .header("User-Agent", userAgent)
-                .method(method.name(), HttpRequest.BodyPublishers.noBody())
-                .build();
+                .header("User-Agent", userAgent);
+        extraHeaders.forEach(builder::header);
+        HttpRequest request = builder.method(method.name(), HttpRequest.BodyPublishers.noBody()).build();
         return send(request);
     }
 
     private HttpResponseData sendWithForm(HttpMethod method, String url, Map<String, String> formParams) throws IOException, InterruptedException {
+        return sendWithForm(method, url, formParams, Map.of());
+    }
+
+    private HttpResponseData sendWithForm(HttpMethod method, String url, Map<String, String> formParams, Map<String, String> extraHeaders) throws IOException, InterruptedException {
         String body = encodeForm(formParams);
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
                 .timeout(requestTimeout)
                 .header("User-Agent", userAgent)
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .method(method.name(), HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                .build();
+                .header("Content-Type", "application/x-www-form-urlencoded");
+        extraHeaders.forEach(builder::header);
+        HttpRequest request = builder.method(method.name(), HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
         return send(request);
     }
 
-    private HttpResponseData sendWithJsonBody(HttpMethod method, String url, String jsonBody) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+    private HttpResponseData sendWithJsonBody(HttpMethod method, String url, String jsonBody, Map<String, String> extraHeaders) throws IOException, InterruptedException {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
                 .timeout(requestTimeout)
                 .header("User-Agent", userAgent)
-                .header("Content-Type", "application/json")
-                .method(method.name(), HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
-                .build();
+                .header("Content-Type", "application/json");
+        extraHeaders.forEach(builder::header);
+        HttpRequest request = builder.method(method.name(), HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8)).build();
         return send(request);
     }
 
     private HttpResponseData send(HttpRequest request) throws IOException, InterruptedException {
         long start = System.currentTimeMillis();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (IOException | InterruptedException e) {
+            log.debug("{} {} -> FAILED ({}) after {}ms", request.method(), request.uri(),
+                    e.getMessage(), System.currentTimeMillis() - start);
+            throw e;
+        }
         long elapsed = System.currentTimeMillis() - start;
-        return new HttpResponseData(response.statusCode(), response.body(), elapsed);
+        // DEBUG, not INFO: a scan issues thousands of these, and every attack module already
+        // decides for itself what's interesting enough to become a Finding. This is purely for
+        // the "why did the report come back empty" case where per-request status codes are the
+        // only thing that answers it, without needing to cross-reference the target's own logs.
+        log.debug("{} {} -> {} ({}ms, {} bytes)", request.method(), request.uri(),
+                response.statusCode(), elapsed, response.body() == null ? 0 : response.body().length());
+        totalRequests.incrementAndGet();
+        if (THROTTLE_STATUS_CODES.contains(response.statusCode())) {
+            throttledResponses.incrementAndGet();
+        }
+        return new HttpResponseData(response.statusCode(), response.body(), elapsed, headerMapOf(response));
+    }
+
+    // Header names lower-cased so HttpResponseData#header() can do a case-insensitive lookup
+    // without redoing this work per call; only the first value of a repeated header is kept,
+    // which is enough for the single-value headers every caller here actually inspects.
+    private Map<String, String> headerMapOf(HttpResponse<String> response) {
+        Map<String, String> headers = new HashMap<>();
+        response.headers().map().forEach((name, values) -> {
+            if (!values.isEmpty()) {
+                headers.put(name.toLowerCase(Locale.ROOT), values.get(0));
+            }
+        });
+        return headers;
     }
 
     private String encodeForm(Map<String, String> params) {

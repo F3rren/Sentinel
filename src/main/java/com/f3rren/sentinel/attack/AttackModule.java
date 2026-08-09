@@ -2,6 +2,7 @@ package com.f3rren.sentinel.attack;
 
 import com.f3rren.sentinel.model.Endpoint;
 import com.f3rren.sentinel.model.Finding;
+import com.f3rren.sentinel.model.ScanContext;
 
 import java.util.List;
 
@@ -15,4 +16,29 @@ public interface AttackModule {
     String name();
 
     List<Finding> scan(Endpoint endpoint);
+
+    /**
+     * Called once before this module's endpoint loop starts for a given scan, carrying that
+     * scan's context (currently: the optional identities an operator supplied - see {@code
+     * POST /api/scans}'s {@code identities} field). Default no-op: only a module that needs
+     * cross-endpoint or per-scan state (today, only the IDOR module) needs to override it.
+     */
+    default void beginScan(ScanContext context) {
+    }
+
+    /**
+     * Called once after this module has run against every endpoint in the scan, so a stateful
+     * module can discard whatever it accumulated during {@link #scan(Endpoint)} calls - and,
+     * for a module whose checks depend on having seen every endpoint at least once (e.g. the
+     * IDOR module deferring an item-endpoint check until it's sure every create this scan will
+     * ever perform has already happened, regardless of discovery order), report findings it
+     * couldn't safely produce until now. Default no-op, returning none: only a module that needs
+     * cross-endpoint or per-scan state (today, only the IDOR module) needs to override it.
+     * <p>
+     * Modules are singleton Spring beans shared across every scan Sentinel ever runs: anything
+     * held between {@link #beginScan(ScanContext)} and here must not leak into the next one.
+     */
+    default List<Finding> endScan() {
+        return List.of();
+    }
 }

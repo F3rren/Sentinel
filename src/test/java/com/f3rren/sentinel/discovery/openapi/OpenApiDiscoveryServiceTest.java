@@ -11,6 +11,8 @@ import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -143,6 +145,39 @@ class OpenApiDiscoveryServiceTest {
             }
             """;
 
+    private static final String SPEC_WITH_DATE_FIELDS = """
+            {
+              "openapi": "3.0.1",
+              "paths": {
+                "/products": {
+                  "post": {
+                    "requestBody": {
+                      "content": {
+                        "application/json": {
+                          "schema": { "$ref": "#/components/schemas/CreateProductDTO" }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "components": {
+                "schemas": {
+                  "CreateProductDTO": {
+                    "required": ["name"],
+                    "type": "object",
+                    "properties": {
+                      "name": {"type": "string"},
+                      "purchaseDate": {"type": "string", "format": "date"},
+                      "recordedAt": {"type": "string", "format": "date-time"},
+                      "contactEmail": {"type": "string", "format": "email"}
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
     private static final String SPEC_WITH_OPTIONAL_PATTERN_FIELD = """
             {
               "openapi": "3.0.1",
@@ -167,10 +202,13 @@ class OpenApiDiscoveryServiceTest {
                     "properties": {
                       "name": {"type": "string", "minLength": 2, "maxLength": 100},
                       "type": {"type": "string", "enum": ["saltwater", "freshwater"]},
+                      "volume": {"type": "integer", "maximum": 100000},
                       "imageUrl": {
                         "type": "string",
                         "pattern": "^$|^https?://[^\\\\s/$.?#].[^\\\\s]*$"
-                      }
+                      },
+                      "tags": {"type": "array", "items": {"type": "string"}},
+                      "metadata": {"type": "object"}
                     }
                   }
                 }
@@ -253,6 +291,43 @@ class OpenApiDiscoveryServiceTest {
     }
 
     @Test
+    void prefersTheAggregatorOverAGatewaysOwnSmallLocalSpec() throws Exception {
+        // A gateway that also serves a handful of its own endpoints (e.g. a login controller
+        // living directly on the gateway) has a small but perfectly valid /v3/api-docs of its
+        // own. That must not short-circuit discovery before the aggregator is tried - the real
+        // regression this guards: the gateway's own spec "looked like" the whole API and
+        // Sentinel used to stop right there, missing every service actually behind it.
+        String gatewaysOwnSpec = """
+                {
+                  "openapi": "3.0.1",
+                  "paths": {
+                    "/auth/login": {
+                      "post": {}
+                    }
+                  }
+                }
+                """;
+        when(httpClient.get(anyString())).thenAnswer(invocation -> {
+            String url = invocation.getArgument(0);
+            return switch (url) {
+                case "http://localhost:8080/v3/api-docs" -> new HttpResponseData(200, gatewaysOwnSpec, 5);
+                case "http://localhost:8080/v3/api-docs/swagger-config" -> new HttpResponseData(200, SWAGGER_CONFIG, 5);
+                case "http://localhost:8080/aquariums-service/v3/api-docs" -> new HttpResponseData(200, SERVICE_A_SPEC, 5);
+                case "http://localhost:8080/species-service/v3/api-docs" -> new HttpResponseData(200, SERVICE_B_SPEC, 5);
+                default -> new HttpResponseData(404, "", 5);
+            };
+        });
+
+        OpenApiDiscoveryService service = new OpenApiDiscoveryService(httpClient);
+        Optional<OpenApiDiscoveryResult> result = service.discover("http://localhost:8080");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().specUrl()).isEqualTo("http://localhost:8080/v3/api-docs/swagger-config");
+        assertThat(result.get().endpoints()).hasSize(2);
+        assertThat(result.get().endpoints()).noneMatch(e -> e.url().endsWith("/auth/login"));
+    }
+
+    @Test
     void discoversEndpointsThroughSpringfoxSwaggerResourcesArray() throws Exception {
         when(httpClient.get(anyString())).thenAnswer(invocation -> {
             String url = invocation.getArgument(0);
@@ -292,7 +367,10 @@ class OpenApiDiscoveryServiceTest {
         assertThat(createAquarium.requestBodySample()).isNotNull();
 
         JsonNode body = new ObjectMapper().readTree(createAquarium.requestBodySample());
-        assertThat(body.path("name").isTextual()).isTrue();
+        // A generic string property with no format/enum gets a random, clearly-synthetic token
+        // rather than a plain word like "test" - easy to tell apart from real user input and to
+        // grep for in the target's logs/database afterward.
+        assertThat(body.path("name").asText()).startsWith("sentinel-");
         assertThat(body.path("volume").isInt()).isTrue();
         assertThat(body.path("volume").asInt()).isEqualTo(1);
         assertThat(body.path("saltwater").isBoolean()).isTrue();
@@ -307,7 +385,35 @@ class OpenApiDiscoveryServiceTest {
     }
 
     @Test
-    void omitsOptionalPropertiesNotListedAsRequired() throws Exception {
+    void generatesCurrentDateAndDateTimeValuesInsteadOfAStaleFixedLiteral() throws Exception {
+        when(httpClient.get(anyString())).thenAnswer(invocation -> {
+            String url = invocation.getArgument(0);
+            if (url.endsWith("/v3/api-docs")) {
+                return new HttpResponseData(200, SPEC_WITH_DATE_FIELDS, 5);
+            }
+            return new HttpResponseData(404, "", 5);
+        });
+
+        OpenApiDiscoveryService service = new OpenApiDiscoveryService(httpClient);
+        Optional<OpenApiDiscoveryResult> result = service.discover("http://localhost:8080");
+
+        assertThat(result).isPresent();
+        Endpoint createProduct = find(result.get().endpoints(), HttpMethod.POST, "http://localhost:8080/products");
+        JsonNode body = new ObjectMapper().readTree(createProduct.requestBodySample());
+
+        // A hardcoded past literal (e.g. "2024-01-01") only gets staler as real time passes and
+        // is guaranteed to eventually violate any "not in the past" / recency validation. "Now"
+        // has no such expiry.
+        assertThat(LocalDate.parse(body.path("purchaseDate").asText())).isEqualTo(LocalDate.now());
+        assertThat(Instant.parse(body.path("recordedAt").asText()))
+                .isCloseTo(Instant.now(), org.assertj.core.api.Assertions.within(java.time.Duration.ofMinutes(1)));
+        // Also synthetic, not a real address, but still a well-formed email so it doesn't fail
+        // deserialization/format validation before Sentinel's own auth check even runs.
+        assertThat(body.path("contactEmail").asText()).matches("sentinel-[a-f0-9]{12}@sentinel\\.invalid");
+    }
+
+    @Test
+    void populatesOptionalPropertiesExceptThoseWithAPatternConstraint() throws Exception {
         when(httpClient.get(anyString())).thenAnswer(invocation -> {
             String url = invocation.getArgument(0);
             if (url.endsWith("/v3/api-docs")) {
@@ -327,9 +433,20 @@ class OpenApiDiscoveryServiceTest {
         // name and type are required: must be present.
         assertThat(body.has("name")).isTrue();
         assertThat(body.path("type").asText()).isEqualTo("saltwater");
+        // volume is optional but has no pattern to violate - a Java primitive int field backing
+        // it would otherwise deserialize to 0 when the property is absent, which can fail its
+        // own validation (e.g. @Positive) independently of anything auth-related. Sending a real
+        // value avoids that trap.
+        assertThat(body.path("volume").isInt()).isTrue();
+        assertThat(body.path("volume").asInt()).isEqualTo(1);
         // imageUrl is optional and guarded by a URL pattern our generic sample can't satisfy -
         // omitting it (leaving it null/absent) passes validation; a "test" placeholder wouldn't.
         assertThat(body.has("imageUrl")).isFalse();
+        // tags/metadata are optional array/object properties: an empty [] or {} would still be a
+        // non-null value, so a @Size(min=1) or a cascaded @Valid on a nested DTO could reject it
+        // where an absent field would have been skipped entirely. Omit them too.
+        assertThat(body.has("tags")).isFalse();
+        assertThat(body.has("metadata")).isFalse();
     }
 
     private Endpoint find(List<Endpoint> endpoints, HttpMethod method, String url) {

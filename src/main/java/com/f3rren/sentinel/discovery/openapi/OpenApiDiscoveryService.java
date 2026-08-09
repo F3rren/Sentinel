@@ -1,5 +1,6 @@
 package com.f3rren.sentinel.discovery.openapi;
 
+import com.f3rren.sentinel.discovery.SampleValues;
 import com.f3rren.sentinel.http.HttpResponseData;
 import com.f3rren.sentinel.http.SentinelHttpClient;
 import com.f3rren.sentinel.model.Endpoint;
@@ -15,12 +16,15 @@ import tools.jackson.databind.node.ObjectNode;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Looks for a machine-readable API description (OpenAPI/Swagger) on the target and, when one
@@ -28,10 +32,13 @@ import java.util.Set;
  * more complete and reliable source than crawling HTML, for any project with Swagger wired up
  * (springdoc, springfox, or a hand-served swagger.json/openapi.json).
  * <p>
- * API gateways typically don't serve a single spec of their own: they aggregate one spec per
- * downstream service and expose the list via springdoc's {@code /v3/api-docs/swagger-config}
- * or springfox's {@code /swagger-resources}. When no single spec is found, this service also
- * follows that aggregation so the whole surface behind the gateway gets discovered.
+ * API gateways typically aggregate one spec per downstream service and expose the list via
+ * springdoc's {@code /v3/api-docs/swagger-config} or springfox's {@code /swagger-resources}.
+ * That aggregation is tried <em>first</em>, before a single spec: a gateway can easily have a
+ * small number of endpoints of its own (health checks, a login controller, ...) in addition to
+ * everything it fronts, and a single spec found there would otherwise "look like" the whole API
+ * and short-circuit discovery - silently missing the much larger surface behind it. Only when
+ * no aggregator is found does this service fall back to looking for a single spec directly.
  */
 @Service
 public class OpenApiDiscoveryService {
@@ -66,11 +73,16 @@ public class OpenApiDiscoveryService {
         if (origin == null) {
             return Optional.empty();
         }
-        Optional<OpenApiDiscoveryResult> singleSpec = discoverSingleSpec(origin);
-        if (singleSpec.isPresent()) {
-            return singleSpec;
+        // Aggregator first, not the reverse: a gateway that also happens to expose its own
+        // small local spec (e.g. a login endpoint living on the gateway itself, alongside the
+        // real business API behind it) would otherwise "look like" a complete, valid single
+        // spec and short-circuit discovery there - silently missing everything actually behind
+        // the gateway. An aggregator, when present, is always the more complete picture.
+        Optional<OpenApiDiscoveryResult> aggregated = discoverAggregatedSpecs(origin);
+        if (aggregated.isPresent()) {
+            return aggregated;
         }
-        return discoverAggregatedSpecs(origin);
+        return discoverSingleSpec(origin);
     }
 
     private Optional<OpenApiDiscoveryResult> discoverSingleSpec(String origin) {
@@ -198,32 +210,49 @@ public class OpenApiDiscoveryService {
                 if (!SUPPORTED_METHODS.contains(methodName) || !opEntry.getValue().isObject()) {
                     continue;
                 }
-                JsonNode operation = opEntry.getValue();
-
-                List<JsonNode> params = new ArrayList<>(sharedParams);
-                params.addAll(asList(operation.path("parameters")));
-
-                String resolvedPath = resolvePathParams(pathTemplate, params);
-                if (resolvedPath == null) {
-                    // A path parameter isn't documented, so we can't build a valid concrete URL.
-                    continue;
+                try {
+                    Endpoint endpoint = buildEndpoint(origin, pathTemplate, methodName, opEntry.getValue(),
+                            sharedParams, root);
+                    if (endpoint != null) {
+                        endpoints.add(endpoint);
+                    }
+                } catch (Exception e) {
+                    // One malformed operation (an unexpected schema shape, an unresolvable ref,
+                    // ...) must not cost every other endpoint documented in the same spec: a
+                    // single unguarded exception here used to unwind this whole method, silently
+                    // dropping every path that came after the bad one in document order. Logged
+                    // at WARN, not DEBUG, precisely because it previously went unnoticed.
+                    log.warn("Skipping {} {} - failed to build endpoint from its OpenAPI operation: {}",
+                            methodName.toUpperCase(), pathTemplate, e.getMessage(), e);
                 }
-
-                List<EndpointParam> queryParams = params.stream()
-                        .filter(p -> "query".equals(p.path("in").asText()))
-                        .map(p -> p.path("name").asText())
-                        .filter(name -> !name.isBlank())
-                        .distinct()
-                        .map(name -> new EndpointParam(name, sampleValueForParameter(findParam(params, name))))
-                        .toList();
-
-                String requestBodySample = buildRequestBodySample(root, operation);
-
-                endpoints.add(new Endpoint(origin + resolvedPath, HttpMethod.valueOf(methodName.toUpperCase()),
-                        queryParams, requestBodySample));
             }
         }
         return endpoints;
+    }
+
+    private Endpoint buildEndpoint(String origin, String pathTemplate, String methodName, JsonNode operation,
+            List<JsonNode> sharedParams, JsonNode root) {
+        List<JsonNode> params = new ArrayList<>(sharedParams);
+        params.addAll(asList(operation.path("parameters")));
+
+        String resolvedPath = resolvePathParams(pathTemplate, params);
+        if (resolvedPath == null) {
+            // A path parameter isn't documented, so we can't build a valid concrete URL.
+            return null;
+        }
+
+        List<EndpointParam> queryParams = params.stream()
+                .filter(p -> "query".equals(p.path("in").asText()))
+                .map(p -> p.path("name").asText())
+                .filter(name -> !name.isBlank())
+                .distinct()
+                .map(name -> new EndpointParam(name, sampleValueForParameter(findParam(params, name))))
+                .toList();
+
+        String requestBodySample = buildRequestBodySample(root, operation);
+
+        return new Endpoint(origin + resolvedPath, HttpMethod.valueOf(methodName.toUpperCase()),
+                queryParams, requestBodySample);
     }
 
     private JsonNode findParam(List<JsonNode> params, String name) {
@@ -269,13 +298,13 @@ public class OpenApiDiscoveryService {
             case "integer", "number" -> "1";
             case "boolean" -> "true";
             case "string" -> switch (format) {
-                case "uuid" -> "00000000-0000-0000-0000-000000000001";
-                case "date" -> "2024-01-01";
-                case "date-time" -> "2024-01-01T00:00:00Z";
-                case "email" -> "test@example.com";
-                default -> "test";
+                case "uuid" -> UUID.randomUUID().toString();
+                case "date" -> LocalDate.now().toString();
+                case "date-time" -> Instant.now().toString();
+                case "email" -> SampleValues.randomEmail();
+                default -> SampleValues.randomToken();
             };
-            default -> "test";
+            default -> SampleValues.randomToken();
         };
     }
 
@@ -287,14 +316,15 @@ public class OpenApiDiscoveryService {
      * and boolean fields get a value of the right JSON type, which is far more likely to pass
      * basic deserialization/validation and reach the endpoint's real logic.
      * <p>
-     * Only properties listed in the schema's own {@code required} array are populated, when
-     * that array is present and non-empty. Optional fields are frequently guarded by a
-     * {@code pattern}/format we have no way to satisfy in general (a URL regex, an ISO code,
-     * ...); a generic sample value trips validation on a field that didn't need to be there at
-     * all, since JSR-380 constraints like {@code @Pattern}/{@code @Size} treat an absent
-     * (null) value as valid - only {@code @NotNull}/{@code @NotBlank} on a required field care.
-     * Falls back to populating every property when {@code required} is absent, since a fuller
-     * guess beats an empty body.
+     * Required properties are always populated. Optional properties are populated too unless
+     * {@link #isUnsafeToGuess} flags them (a {@code pattern}-guarded string, an array, a nested
+     * object) - for everything else (plain numbers, booleans, enums, formatted strings) sending a
+     * real value is worth it: a Java primitive field (e.g. an {@code int} with {@code @Positive})
+     * is often "optional" from the schema's point of view - {@code required} only reflects
+     * {@code @NotNull}/{@code @NotBlank} - but still gets deserialized from a missing JSON field
+     * to its primitive default ({@code 0}, {@code false}), which can fail validation on its own;
+     * a real generated value avoids that trap. Falls back to populating every property when
+     * {@code required} is absent entirely, since a fuller guess beats an empty body.
      */
     private String buildRequestBodySample(JsonNode root, JsonNode operation) {
         JsonNode schema = operation.path("requestBody").path("content").path("application/json").path("schema");
@@ -310,12 +340,31 @@ public class OpenApiDiscoveryService {
 
         ObjectNode body = objectMapper.createObjectNode();
         for (Map.Entry<String, JsonNode> property : properties.properties()) {
-            if (!requiredNames.isEmpty() && !requiredNames.contains(property.getKey())) {
+            boolean required = requiredNames.isEmpty() || requiredNames.contains(property.getKey());
+            if (!required && isUnsafeToGuess(root, property.getValue())) {
                 continue;
             }
             setSampleValue(root, body, property.getKey(), property.getValue());
         }
         return body.isEmpty() ? null : body.toString();
+    }
+
+    /**
+     * An optional property is worth populating only when a generic sample can't make its
+     * validation worse than leaving it out. A {@code pattern} is the clearest case (a regex we
+     * can't satisfy in general). Collections and nested objects are the other: JSR-380's
+     * {@code @Size}/{@code @NotEmpty} (and cascaded {@code @Valid} on a nested DTO) validate a
+     * *present* value's shape, so the empty array/object {@link #setSampleValue} would otherwise
+     * emit can fail validation that an absent (null) field would have skipped entirely - the same
+     * trap this method exists to avoid, just via a container instead of a bad scalar.
+     */
+    private boolean isUnsafeToGuess(JsonNode root, JsonNode propertySchema) {
+        JsonNode resolved = resolveSchemaRef(root, propertySchema);
+        if (resolved.has("pattern")) {
+            return true;
+        }
+        String type = resolved.path("type").asText("string");
+        return "array".equals(type) || "object".equals(type);
     }
 
     private Set<String> requiredPropertyNames(JsonNode schema) {

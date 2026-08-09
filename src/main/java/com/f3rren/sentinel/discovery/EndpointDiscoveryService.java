@@ -112,10 +112,10 @@ public class EndpointDiscoveryService {
             return field.attr("value");
         }
         return switch (type) {
-            case "email" -> "test@example.com";
+            case "email" -> SampleValues.randomEmail();
             case "number", "range" -> "1";
             case "checkbox", "radio" -> "on";
-            default -> "test";
+            default -> SampleValues.randomToken();
         };
     }
 

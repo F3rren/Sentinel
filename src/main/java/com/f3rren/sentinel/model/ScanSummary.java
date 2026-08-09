@@ -7,6 +7,7 @@ public record ScanSummary(
         Map<Severity, Integer> countsBySeverity,
         Map<VulnerabilityType, Integer> countsByType,
         Severity overallRisk,
-        int riskScore
+        int riskScore,
+        boolean possiblyRateLimited
 ) {
 }

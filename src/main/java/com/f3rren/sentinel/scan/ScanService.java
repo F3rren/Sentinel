@@ -4,8 +4,11 @@ import com.f3rren.sentinel.attack.AttackModule;
 import com.f3rren.sentinel.discovery.EndpointDiscoveryService;
 import com.f3rren.sentinel.discovery.openapi.OpenApiDiscoveryResult;
 import com.f3rren.sentinel.discovery.openapi.OpenApiDiscoveryService;
+import com.f3rren.sentinel.http.RequestStats;
+import com.f3rren.sentinel.http.SentinelHttpClient;
 import com.f3rren.sentinel.model.Endpoint;
 import com.f3rren.sentinel.model.Finding;
+import com.f3rren.sentinel.model.ScanContext;
 import com.f3rren.sentinel.model.ScanReport;
 import com.f3rren.sentinel.report.ReportFileWriter;
 import com.f3rren.sentinel.report.ReportGenerator;
@@ -49,6 +52,7 @@ public class ScanService {
     private final List<AttackModule> attackModules;
     private final ReportGenerator reportGenerator;
     private final ReportFileWriter reportFileWriter;
+    private final SentinelHttpClient httpClient;
     private final int maxEndpoints;
     private final Set<HttpMethod> allowedHttpMethods;
     private final Map<String, ScanReport> reports = new ConcurrentHashMap<>();
@@ -63,6 +67,7 @@ public class ScanService {
             @Autowired(required = false) List<AttackModule> attackModules,
             ReportGenerator reportGenerator,
             ReportFileWriter reportFileWriter,
+            SentinelHttpClient httpClient,
             @Value("${sentinel.scan.max-endpoints:25}") int maxEndpoints,
             @Value("${sentinel.scan.allowed-http-methods:GET,POST,PUT,PATCH,DELETE}") String allowedHttpMethodsRaw
     ) {
@@ -71,6 +76,7 @@ public class ScanService {
         this.attackModules = attackModules != null ? attackModules : List.of();
         this.reportGenerator = reportGenerator;
         this.reportFileWriter = reportFileWriter;
+        this.httpClient = httpClient;
         this.maxEndpoints = maxEndpoints;
         this.allowedHttpMethods = parseAllowedMethods(allowedHttpMethodsRaw);
     }
@@ -93,13 +99,13 @@ public class ScanService {
                 continue;
             }
             if (!KNOWN_METHOD_NAMES.contains(candidate)) {
-                log.warn("Ignoro metodo HTTP sconosciuto in sentinel.scan.allowed-http-methods: '{}'", candidate);
+                log.warn("Ignoring unknown HTTP method in sentinel.scan.allowed-http-methods: '{}'", candidate);
                 continue;
             }
             methods.add(HttpMethod.valueOf(candidate));
         }
         if (methods.isEmpty()) {
-            log.warn("sentinel.scan.allowed-http-methods='{}' non contiene alcun metodo valido: uso il default ({}).",
+            log.warn("sentinel.scan.allowed-http-methods='{}' contains no valid method: using the default ({}).",
                     raw, DEFAULT_ALLOWED_METHODS);
             return DEFAULT_ALLOWED_METHODS;
         }
@@ -107,6 +113,10 @@ public class ScanService {
     }
 
     public ScanReport runScan(String rawTargetUrl) {
+        return runScan(rawTargetUrl, ScanContext.EMPTY);
+    }
+
+    public ScanReport runScan(String rawTargetUrl, ScanContext context) {
         String targetUrl = normalizeTargetUrl(rawTargetUrl);
         Instant startedAt = Instant.now();
 
@@ -134,22 +144,51 @@ public class ScanService {
         List<Endpoint> endpointsToScan = methodFiltered.size() > maxEndpoints
                 ? methodFiltered.subList(0, maxEndpoints)
                 : methodFiltered;
+        // Discovery and filtering happen in several steps before anything is attacked; when an
+        // endpoint that should exist doesn't produce a finding, this is the only way to tell
+        // whether it ever made it this far at all, as opposed to being dropped earlier.
+        log.info("Endpoints to attack ({}): {}", endpointsToScan.size(), endpointsToScan.stream()
+                .map(e -> e.method() + " " + e.url())
+                .toList());
 
+        // Module-outer, endpoint-inner (not the reverse): a module runs across every endpoint
+        // before the next module starts. This matters because attack modules are @Order-ed so
+        // that ones sharing state with the target (e.g. RateLimitScanner deliberately burning
+        // through a rate-limit bucket) run last - endpoint-outer nesting would interleave a
+        // budget-burning module's bursts between every other module's single requests, starving
+        // them of a clean response on later endpoints purely as a side effect of scan order.
+        //
+        // Even with that ordering, a single module fuzzing many parameters across many endpoints
+        // (e.g. the SQLi module trying ~10 payloads per query parameter) can by itself exceed a
+        // real target's rate limit before any other module gets a turn - the reset here, paired
+        // with the stats read below, is what lets the report flag that instead of silently
+        // reporting a "clean" scan that was actually mostly throttled.
+        httpClient.resetRequestStats();
         List<Finding> findings = new ArrayList<>();
-        for (Endpoint endpoint : endpointsToScan) {
-            for (AttackModule module : attackModules) {
+        for (AttackModule module : attackModules) {
+            module.beginScan(context);
+            try {
+                for (Endpoint endpoint : endpointsToScan) {
+                    try {
+                        findings.addAll(module.scan(endpoint));
+                    } catch (Exception e) {
+                        log.warn("Attack module {} failed on {} {}: {}", module.name(), endpoint.method(), endpoint.url(), e.getMessage());
+                    }
+                }
+            } finally {
                 try {
-                    findings.addAll(module.scan(endpoint));
+                    findings.addAll(module.endScan());
                 } catch (Exception e) {
-                    log.warn("Attack module {} failed on {} {}: {}", module.name(), endpoint.method(), endpoint.url(), e.getMessage());
+                    log.warn("Attack module {} failed on endScan: {}", module.name(), e.getMessage());
                 }
             }
         }
+        RequestStats requestStats = httpClient.requestStats();
 
         Instant finishedAt = Instant.now();
         String id = UUID.randomUUID().toString();
         ScanReport report = reportGenerator.buildReport(id, targetUrl, startedAt, finishedAt,
-                endpoints.size(), endpointsToScan.size(), openApiSpecUrl, findings);
+                endpoints.size(), endpointsToScan.size(), openApiSpecUrl, findings, requestStats);
         reports.put(id, report);
         latestReportId.set(id);
         reportFileWriter.write(report);
@@ -178,7 +217,7 @@ public class ScanService {
 
     public String normalizeTargetUrl(String rawTargetUrl) {
         if (rawTargetUrl == null || rawTargetUrl.isBlank()) {
-            throw new InvalidTargetException("targetUrl non puo' essere vuoto");
+            throw new InvalidTargetException("targetUrl must not be empty");
         }
         String candidate = rawTargetUrl.trim();
         if (!candidate.startsWith("http://") && !candidate.startsWith("https://")) {
@@ -188,10 +227,10 @@ public class ScanService {
         try {
             uri = URI.create(candidate);
         } catch (IllegalArgumentException e) {
-            throw new InvalidTargetException("targetUrl non valido: " + rawTargetUrl);
+            throw new InvalidTargetException("Invalid targetUrl: " + rawTargetUrl);
         }
         if (uri.getHost() == null || uri.getHost().isBlank()) {
-            throw new InvalidTargetException("targetUrl non valido, host mancante: " + rawTargetUrl);
+            throw new InvalidTargetException("Invalid targetUrl, missing host: " + rawTargetUrl);
         }
         return candidate;
     }
