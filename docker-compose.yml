@@ -1,15 +1,16 @@
 # Runs Sentinel joined to an already-running victim's Docker network so it can reach it by
-# container name (e.g. http://api-gateway:8080) instead of localhost. Works against any
-# victim with its own docker-compose stack, not a specific one - point .env at whichever
-# one you're currently testing.
+# container name (e.g. http://api-gateway:8080) instead of localhost. Defaults to aquarium-ms's
+# own network name (see the networks: section below), so against that victim specifically no
+# .env edit is needed at all - just start it first. Works against any victim with its own
+# docker-compose stack though, not only that one: point VICTIM_NETWORK_NAME in .env at a
+# different one when needed.
 #
 # Plug-and-play setup:
 #   1. Start the victim stack first (from its own repo): docker compose up -d
-#   2. cp env.example .env, then edit the values inside for the victim you're targeting
-#      right now (docker network ls tells you the real network name - see env.example
-#      for how Compose derives it). That's the only manual step; `docker compose up` below
-#      reads .env automatically from now on, every time, no shell exports needed. Switching
-#      to a different victim later just means editing .env again.
+#   2. Only if targeting a victim other than aquarium-ms: cp env.example .env, then set
+#      VICTIM_NETWORK_NAME to that victim's real Docker network name (docker network ls -
+#      see env.example for how Compose derives it). `docker compose up` below reads .env
+#      automatically from now on, every time, no shell exports needed.
 #   3. docker compose up -d --build
 #
 # If SENTINEL_SCAN_AUTO_TARGET_URL is also set in .env, that's the whole procedure - Sentinel
@@ -51,4 +52,7 @@ services:
 networks:
   victim-network:
     external: true
-    name: ${VICTIM_NETWORK_NAME:?Set VICTIM_NETWORK_NAME in your .env file (copy env.example) to the current victim's Docker network name}
+    # Defaults to aquarium-ms's own network name so this works out of the box against it
+    # without touching .env - override VICTIM_NETWORK_NAME there when pointing at a different
+    # victim (docker network ls shows the real name for whichever stack is currently running).
+    name: ${VICTIM_NETWORK_NAME:-aquarium-ms_aquarium-network}
