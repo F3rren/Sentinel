@@ -178,6 +178,14 @@ public class IdorScanner implements AttackModule {
         }
 
         if (responseAsB.statusCode() < 200 || responseAsB.statusCode() >= 300) {
+            if (SentinelHttpClient.THROTTLE_STATUS_CODES.contains(responseAsB.statusCode())) {
+                // Distinct from a genuine 401/403/404 denial: this isn't evidence the endpoint is
+                // secure, it's evidence the check never really ran. Silently treating it as "no
+                // finding" like a real denial would hide that the result for this endpoint is
+                // inconclusive rather than confirmed-secure.
+                log.warn("IDOR cross-identity check for {} {} got {} (rate-limited) - result is inconclusive, not confirmed-secure",
+                        endpoint.method(), urlWithCreatedId, responseAsB.statusCode());
+            }
             // Identity B was correctly denied - this is the secure, expected outcome, not a finding.
             return List.of();
         }
