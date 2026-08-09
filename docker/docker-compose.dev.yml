@@ -29,6 +29,7 @@ services:
       SENTINEL_SCAN_XSS_ENABLED: ${SENTINEL_SCAN_XSS_ENABLED:-true}
       SENTINEL_SCAN_RATE_LIMIT_ENABLED: ${SENTINEL_SCAN_RATE_LIMIT_ENABLED:-true}
       SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE: ${SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE:-130}
+      SENTINEL_SCAN_IDOR_ENABLED: ${SENTINEL_SCAN_IDOR_ENABLED:-false}
       # GET-only by default in dev: iterating usually means re-running the same scan against
       # the same local victim repeatedly, and this guarantees that never mutates its data.
       # Override in .env.dev once you deliberately want to exercise write endpoints too.
@@ -44,4 +45,6 @@ services:
 networks:
   victim-network:
     external: true
-    name: ${VICTIM_NETWORK_NAME:?Set VICTIM_NETWORK_NAME in .env.dev (copy env.dev.example)}
+    # Defaults to aquarium-ms's own network name, same as the root docker-compose.yml -
+    # override VICTIM_NETWORK_NAME in .env.dev for a different victim.
+    name: ${VICTIM_NETWORK_NAME:-aquarium-ms_aquarium-network}
