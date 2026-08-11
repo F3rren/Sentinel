@@ -123,7 +123,7 @@ class ReportGeneratorTest {
     }
 
     @Test
-    void groupsFindingsByModuleInTheOrderTheyWereReported() {
+    void groupsFindingsByModuleTypeDescriptionAndRecommendationInReportOrder() {
         Instant start = Instant.parse("2026-01-01T10:00:00Z");
         Instant end = Instant.parse("2026-01-01T10:00:01Z");
         List<Finding> findings = List.of(
@@ -135,13 +135,16 @@ class ReportGeneratorTest {
         ScanReport report = reportGenerator.buildReport(
                 "scan-6", "http://localhost:8080", start, end, 3, 3, null, findings, NO_THROTTLING);
 
-        assertThat(report.findingsByModule()).hasSize(2);
-        assertThat(report.findingsByModule().get("sql-injection")).hasSize(1);
-        assertThat(report.findingsByModule().get("missing-authentication")).hasSize(2);
-        // A module that reported no findings at all simply has no key - not an empty list.
-        assertThat(report.findingsByModule()).doesNotContainKey("rate-limit");
-        // Insertion order (sql-injection first) must survive into the map's key order.
-        assertThat(report.findingsByModule().keySet()).containsExactly("sql-injection", "missing-authentication");
+        assertThat(report.findings()).hasSize(2);
+        // Same module/type/description/recommendation collapse into one group with two occurrences...
+        assertThat(report.findings().get(1).module()).isEqualTo("missing-authentication");
+        assertThat(report.findings().get(1).occurrences()).hasSize(2);
+        // ...each occurrence keeps its own severity.
+        assertThat(report.findings().get(1).occurrences())
+                .extracting("severity")
+                .containsExactly(Severity.HIGH, Severity.MEDIUM);
+        // Insertion order (sql-injection first) must survive into the group order.
+        assertThat(report.findings()).extracting("module").containsExactly("sql-injection", "missing-authentication");
     }
 
     @Test

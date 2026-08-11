@@ -41,7 +41,7 @@ class ScanControllerTest {
     void startScanReturnsCreatedReport() throws Exception {
         ScanReport report = new ScanReport(
                 "scan-1", "http://localhost:8080", Instant.now(), Instant.now(), 42, 3, 3, null,
-                List.of(), Map.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Map.of(VulnerabilityType.SQL_INJECTION_ERROR_BASED, 0), Severity.INFO, 0, false),
+                List.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Map.of(VulnerabilityType.SQL_INJECTION_ERROR_BASED, 0), Severity.INFO, 0, false),
                 "Investigation of http://localhost:8080 completed in 42 ms. No vulnerabilities detected.");
         when(scanService.runScan(eq("localhost:8080"), eq(ScanContext.EMPTY))).thenReturn(report);
 
@@ -57,7 +57,7 @@ class ScanControllerTest {
     void startScanWithIdentitiesPassesThemThroughAsScanContext() throws Exception {
         ScanReport report = new ScanReport(
                 "scan-2", "http://localhost:8080", Instant.now(), Instant.now(), 42, 3, 3, null,
-                List.of(), Map.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Map.of(VulnerabilityType.SQL_INJECTION_ERROR_BASED, 0), Severity.INFO, 0, false),
+                List.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Map.of(VulnerabilityType.SQL_INJECTION_ERROR_BASED, 0), Severity.INFO, 0, false),
                 "Investigation of http://localhost:8080 completed in 42 ms. No vulnerabilities detected.");
         ScanContext expectedContext = new ScanContext(
                 new ScanIdentity("Authorization", "Bearer tokenA"),
@@ -107,7 +107,7 @@ class ScanControllerTest {
         ScanReport report = new ScanReport(
                 "scan-auto", "http://api-gateway:8080", Instant.now(), Instant.now(), 3646, 46, 46,
                 "http://api-gateway:8080/v3/api-docs/swagger-config",
-                List.of(), Map.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Map.of(VulnerabilityType.SQL_INJECTION_ERROR_BASED, 0), Severity.INFO, 0, false),
+                List.of(), new ScanSummary(0, Map.of(Severity.INFO, 0), Map.of(VulnerabilityType.SQL_INJECTION_ERROR_BASED, 0), Severity.INFO, 0, false),
                 "Investigation of http://api-gateway:8080 completed in 3.6 seconds. No vulnerabilities detected.");
         when(scanService.getLatestReport()).thenReturn(report);
 

@@ -2,6 +2,8 @@ package com.f3rren.sentinel.report;
 
 import com.f3rren.sentinel.http.RequestStats;
 import com.f3rren.sentinel.model.Finding;
+import com.f3rren.sentinel.model.FindingGroup;
+import com.f3rren.sentinel.model.FindingOccurrence;
 import com.f3rren.sentinel.model.ScanReport;
 import com.f3rren.sentinel.model.ScanSummary;
 import com.f3rren.sentinel.model.Severity;
@@ -10,6 +12,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -55,24 +58,38 @@ public class ReportGenerator {
         boolean possiblyRateLimited = requestStats.total() >= MIN_REQUESTS_FOR_RATE_LIMIT_CHECK
                 && requestStats.throttledRatio() >= RATE_LIMIT_THROTTLE_RATIO_THRESHOLD;
         ScanSummary summary = summarize(findings, possiblyRateLimited);
-        Map<String, List<Finding>> findingsByModule = groupByModule(findings);
+        List<FindingGroup> groupedFindings = groupFindings(findings);
         long durationMillis = Duration.between(startedAt, finishedAt).toMillis();
         String narrative = buildNarrative(targetUrl, durationMillis, endpointsDiscovered, endpointsTested,
                 openApiSpecUrl, summary, requestStats);
         return new ScanReport(id, targetUrl, startedAt, finishedAt, durationMillis, endpointsDiscovered, endpointsTested,
-                openApiSpecUrl, findings, findingsByModule, summary, narrative);
+                openApiSpecUrl, groupedFindings, summary, narrative);
     }
 
     /**
-     * The flat {@code findings} list stays for simple full iteration; this is the same data
-     * organized into one section per attack module, in the order modules actually ran (a
-     * {@link LinkedHashMap} preserves first-seen order, and {@code ScanService} runs one module
-     * across every endpoint before the next starts, so findings already arrive grouped) - readable
-     * directly from the report JSON without the caller re-grouping by {@link Finding#module()}.
+     * Collapses every {@link Finding} sharing the same module/type/description/recommendation
+     * into one {@link FindingGroup} with a list of occurrences, instead of one full object per
+     * affected endpoint - a scan flagging the same missing-rate-limiting issue on twenty
+     * endpoints produces one group with twenty occurrences, not twenty near-identical findings
+     * repeating the same description and recommendation text. A {@link LinkedHashMap} preserves
+     * first-seen order, and {@code ScanService} runs one module across every endpoint before the
+     * next starts, so groups already come out ordered by module, in the order modules ran.
      */
-    private Map<String, List<Finding>> groupByModule(List<Finding> findings) {
-        return findings.stream()
-                .collect(Collectors.groupingBy(Finding::module, LinkedHashMap::new, Collectors.toList()));
+    private List<FindingGroup> groupFindings(List<Finding> findings) {
+        Map<GroupKey, List<FindingOccurrence>> byKey = new LinkedHashMap<>();
+        for (Finding finding : findings) {
+            GroupKey key = new GroupKey(finding.module(), finding.type(), finding.description(), finding.recommendation());
+            byKey.computeIfAbsent(key, k -> new ArrayList<>()).add(new FindingOccurrence(
+                    finding.id(), finding.severity(), finding.endpointUrl(), finding.method(),
+                    finding.parameter(), finding.payload(), finding.evidence()));
+        }
+        return byKey.entrySet().stream()
+                .map(entry -> new FindingGroup(entry.getKey().module(), entry.getKey().type(),
+                        entry.getKey().description(), entry.getKey().recommendation(), entry.getValue()))
+                .toList();
+    }
+
+    private record GroupKey(String module, VulnerabilityType type, String description, String recommendation) {
     }
 
     private ScanSummary summarize(List<Finding> findings, boolean possiblyRateLimited) {

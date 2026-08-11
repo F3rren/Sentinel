@@ -84,8 +84,7 @@ Response (example):
   "endpointsDiscovered": 3,
   "endpointsTested": 3,
   "openApiSpecUrl": null,
-  "findings": [ { "module": "sql-injection", "type": "SQL_INJECTION_ERROR_BASED", "severity": "CRITICAL", "...": "..." } ],
-  "findingsByModule": { "sql-injection": [ { "module": "sql-injection", "type": "SQL_INJECTION_ERROR_BASED", "severity": "CRITICAL", "...": "..." } ] },
+  "findings": [ { "module": "sql-injection", "type": "SQL_INJECTION_ERROR_BASED", "description": "...", "recommendation": "...", "occurrences": [ { "severity": "CRITICAL", "endpointUrl": "...", "...": "..." } ] } ],
   "summary": {
     "totalFindings": 1,
     "overallRisk": "CRITICAL",
@@ -98,7 +97,7 @@ Response (example):
 }
 ```
 
-Each finding also carries a `module` field (`sql-injection`, `missing-authentication`, `brute-force`, `security-misconfiguration`, `xss`, `rate-limit`, `idor`) identifying which attack module produced it. `findingsByModule` is the same findings, grouped into one section per module (in the order the modules ran) - useful for a report broken down by attack type without re-grouping `findings` yourself. A module that reported nothing has no key there at all, rather than an empty array.
+`findings` is a list of **groups**, not raw individual findings: every occurrence sharing the same `module` (`sql-injection`, `missing-authentication`, `brute-force`, `security-misconfiguration`, `xss`, `rate-limit`, `idor`, `bfla`), `type`, `description`, and `recommendation` collapses into one entry with an `occurrences` array - a scan flagging the same missing-rate-limiting issue on twenty endpoints produces one group with twenty occurrences instead of twenty near-identical objects repeating the same description and recommendation text. Each occurrence carries the fields that actually differ per endpoint: `id`, `severity`, `endpointUrl`, `method`, `parameter`, `payload`, `evidence`. Groups come out in the order their module ran; `summary.countsByType`/`countsBySeverity` still count every individual occurrence, not groups.
 
 **`summary.possiblyRateLimited`**: a single module fuzzing many parameters across many endpoints (e.g. the SQL injection module trying several payloads per query parameter) can, by itself, generate enough requests to trip a real target's rate limiter well before the rest of the scan runs - every module tested afterwards then sees 429/423 instead of a real response, and an "all clean" report can actually mean "mostly untested," not "actually secure." Sentinel tracks the fraction of throttled responses across the whole scan; once at least 10 requests were made and 15% or more came back throttled, `possiblyRateLimited` is set to `true` and the `narrative` gets an explicit caveat (prefixed `WARNING:`) naming the exact ratio - read findings from a flagged scan as "no vulnerabilities found among the parts of the target that responded normally," not as a clean bill of health.
 

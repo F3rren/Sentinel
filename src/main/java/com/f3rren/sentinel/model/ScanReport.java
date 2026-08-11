@@ -2,7 +2,6 @@ package com.f3rren.sentinel.model;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 
 public record ScanReport(
         String id,
@@ -13,8 +12,7 @@ public record ScanReport(
         int endpointsDiscovered,
         int endpointsTested,
         String openApiSpecUrl,
-        List<Finding> findings,
-        Map<String, List<Finding>> findingsByModule,
+        List<FindingGroup> findings,
         ScanSummary summary,
         String narrative
 ) {
