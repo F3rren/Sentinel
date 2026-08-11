@@ -8,7 +8,7 @@ target/
 # The real .env is ignored; the committed template (env.example) is dot-less on purpose so
 # it doesn't match this pattern and stays tracked.
 .env
-
+!.env.example
 ### Scan reports (generated output, not source) ###
 /reports/
 
