@@ -30,6 +30,7 @@ services:
       SENTINEL_SCAN_RATE_LIMIT_ENABLED: ${SENTINEL_SCAN_RATE_LIMIT_ENABLED:-true}
       SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE: ${SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE:-130}
       SENTINEL_SCAN_IDOR_ENABLED: ${SENTINEL_SCAN_IDOR_ENABLED:-false}
+      SENTINEL_SCAN_BFLA_ENABLED: ${SENTINEL_SCAN_BFLA_ENABLED:-false}
       # GET-only by default in dev: iterating usually means re-running the same scan against
       # the same local victim repeatedly, and this guarantees that never mutates its data.
       # Override in .env.dev once you deliberately want to exercise write endpoints too.
