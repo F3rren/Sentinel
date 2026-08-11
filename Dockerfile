@@ -1,14 +1,12 @@
-FROM maven:3.9-eclipse-temurin-17 AS build
-WORKDIR /build
+# Runs the app straight from source via Maven instead of a build-a-jar-then-copy-it multi-stage
+# flow. Dependencies are resolved once and cached in an image layer; source is bind-mounted by
+# docker-compose.yml, so picking up a code change only needs `docker compose restart sentinel`
+# (a few seconds) instead of a full image rebuild. Not live class-reload - just skips the
+# rebuild-the-image step a packaged jar would require.
+FROM maven:3.9-eclipse-temurin-17
+WORKDIR /app
 COPY pom.xml .
 RUN mvn -q -B dependency:go-offline
 COPY src src
-RUN mvn -q -B package -DskipTests
-
-FROM eclipse-temurin:17-jre-jammy
-WORKDIR /app
-COPY --from=build /build/target/sentinel-*.jar app.jar
 EXPOSE 8080
-HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=5 \
-    CMD bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/8080' || exit 1
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["mvn", "-q", "spring-boot:run"]
