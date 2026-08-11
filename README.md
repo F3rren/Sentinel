@@ -41,42 +41,13 @@ cp env.example .env
 docker compose up -d --build
 ```
 
-Sentinel will be reachable at `http://localhost:8088`. Details and troubleshooting are in the comments of `docker-compose.yml` and `env.example`.
+Sentinel will be reachable at `http://localhost:8088`. Details and troubleshooting are in the comments of `docker-compose.yml` and `env.example`. `src/` is bind-mounted into the container, so after a code change `docker compose restart sentinel` picks it up in a few seconds - no image rebuild needed (see `Dockerfile`). Defaults are deliberately conservative for repeated local iteration against the same victim: `GET`-only (`SENTINEL_SCAN_ALLOWED_HTTP_METHODS`) so re-running a scan never mutates its data, and `DEBUG` HTTP logging (`SENTINEL_LOG_HTTP_LEVEL`) for full visibility. Widen either in `.env` once you deliberately want to exercise write endpoints or quiet the logs down.
 
 **Fully automatic scan (zero manual commands)**: if you also set `SENTINEL_SCAN_AUTO_TARGET_URL` in `.env` to the victim's URL (e.g. `http://api-gateway:8080`), Sentinel waits on its own for the target to respond and launches the scan on container startup, with no manual request needed. The result can be checked at any time with:
 
 ```bash
 curl http://localhost:8088/api/scans/latest
 ```
-
-### Dev / test / prod environments
-
-The `Dockerfile`/`docker-compose.yml`/`env.example` above are the simple, one-size-fits-all path - fine for a quick scan. `docker/Dockerfile.{dev,test,prod}` and `docker/docker-compose.{dev,test,prod}.yml` split that into three environments that actually behave differently, not just three renamed copies:
-
-| | `dev` | `test` | `prod` |
-|---|---|---|---|
-| Purpose | Fast local iteration against a victim you're actively testing | Run the Maven suite in a clean, reproducible container (CI or local) | Long-running, hardened deployment for a real engagement |
-| Image | Maven+JDK, runs `spring-boot:run` straight from source | Maven+JDK, runs `mvn test` and exits | Multi-stage, final image is JRE + jar only, non-root user |
-| Code changes | `src/` is bind-mounted - `docker compose restart sentinel` picks them up, no rebuild | N/A (one-shot) | None - redeploy by rebuilding the image |
-| Defaults | `GET`-only, `DEBUG` HTTP logging | - | Every method, `INFO` HTTP logging |
-| Lifecycle | `restart: "no"`, manual control | Exits after the run | `restart: unless-stopped`, memory/CPU ceiling |
-
-Each environment reads its own `.env.<name>` (copy the matching `env.<name>.example` template) instead of sharing one `.env` - `docker compose` only auto-loads a file literally named `.env`, so switching environments needs the explicit `--env-file` flag:
-
-```bash
-# dev
-cp env.dev.example .env.dev
-docker compose -f docker/docker-compose.dev.yml --env-file .env.dev up -d --build
-
-# test (no victim involved, no --env-file needed unless tuning MAVEN_OPTS)
-docker compose -f docker/docker-compose.test.yml up --build --abort-on-container-exit
-
-# prod
-cp env.prod.example .env.prod
-docker compose -f docker/docker-compose.prod.yml --env-file .env.prod up -d --build
-```
-
-**Why bother splitting them**: the three environments want genuinely conflicting things from the same codebase - dev wants a fast edit-run loop and safe (`GET`-only) defaults since you're re-running the same scan repeatedly against your own test victim; test wants a throwaway, dependency-free way to get a trustworthy pass/fail without polluting a real environment's config; prod wants the smallest, least-privileged image and guardrails (restart policy, resource limits) appropriate for something left running unattended against a real authorized target. A single `Dockerfile`/`docker-compose.yml` can only really serve one of those well at a time - the others end up either slower than necessary (rebuilding an image on every dev change) or under-hardened (shipping Maven and source in what's meant to be a production image).
 
 ## Using the API
 
