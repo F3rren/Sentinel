@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "sentinel.scan.brute-force.enabled=false",
         "sentinel.scan.security-misconfiguration.enabled=false",
         "sentinel.scan.xss.enabled=false",
+        "sentinel.scan.data-exposure.enabled=false",
         "sentinel.scan.rate-limit.enabled=false"
 })
 class AllAttackModulesDisabledTest {

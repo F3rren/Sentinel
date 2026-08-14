@@ -3,6 +3,7 @@ package com.f3rren.sentinel.attack;
 import com.f3rren.sentinel.SentinelApplication;
 import com.f3rren.sentinel.attack.authn.MissingAuthenticationScanner;
 import com.f3rren.sentinel.attack.bruteforce.BruteForceScanner;
+import com.f3rren.sentinel.attack.dataexposure.DataExposureScanner;
 import com.f3rren.sentinel.attack.misconfig.SecurityMisconfigurationScanner;
 import com.f3rren.sentinel.attack.ratelimit.RateLimitScanner;
 import com.f3rren.sentinel.attack.sqli.SqlInjectionScanner;
@@ -27,12 +28,13 @@ class AttackModuleEnablementTest {
 
     @Test
     void everyModuleIsRegisteredByDefault() {
-        assertThat(attackModules).hasSize(6);
+        assertThat(attackModules).hasSize(7);
         assertThat(attackModules).hasAtLeastOneElementOfType(SqlInjectionScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(MissingAuthenticationScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(BruteForceScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(SecurityMisconfigurationScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(XssScanner.class);
+        assertThat(attackModules).hasAtLeastOneElementOfType(DataExposureScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(RateLimitScanner.class);
     }
 
