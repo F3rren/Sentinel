@@ -7,6 +7,7 @@ import com.f3rren.sentinel.attack.bruteforce.BruteForceScanner;
 import com.f3rren.sentinel.attack.dataexposure.DataExposureScanner;
 import com.f3rren.sentinel.attack.misconfig.SecurityMisconfigurationScanner;
 import com.f3rren.sentinel.attack.ratelimit.RateLimitScanner;
+import com.f3rren.sentinel.attack.ratelimitbypass.RateLimitBypassScanner;
 import com.f3rren.sentinel.attack.sqli.SqlInjectionScanner;
 import com.f3rren.sentinel.attack.xss.XssScanner;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,7 @@ class AttackModuleEnablementTest {
 
     @Test
     void everyModuleIsRegisteredByDefault() {
-        assertThat(attackModules).hasSize(8);
+        assertThat(attackModules).hasSize(9);
         assertThat(attackModules).hasAtLeastOneElementOfType(SqlInjectionScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(MissingAuthenticationScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(BruteForceScanner.class);
@@ -38,14 +39,17 @@ class AttackModuleEnablementTest {
         assertThat(attackModules).hasAtLeastOneElementOfType(DataExposureScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(ActuatorExposureScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(RateLimitScanner.class);
+        assertThat(attackModules).hasAtLeastOneElementOfType(RateLimitBypassScanner.class);
     }
 
     @Test
-    void rateLimitScannerIsOrderedLast() {
+    void rateLimitModulesAreOrderedLastAndAdjacent() {
         // ScanService runs each module across every endpoint before the next module starts
-        // (module-outer nesting) specifically so RateLimitScanner's bucket-exhausting burst
-        // doesn't starve the other modules' single requests on endpoints tested later. That
-        // guarantee only holds if Spring actually honors @Order when injecting this list.
-        assertThat(attackModules.get(attackModules.size() - 1)).isInstanceOf(RateLimitScanner.class);
+        // (module-outer nesting) specifically so these two bucket-exhausting bursts don't starve
+        // the other modules' single requests on endpoints tested later, and so
+        // RateLimitBypassScanner's own burst runs right after RateLimitScanner's - that ordering
+        // only holds if Spring actually honors @Order when injecting this list.
+        assertThat(attackModules.get(attackModules.size() - 2)).isInstanceOf(RateLimitScanner.class);
+        assertThat(attackModules.get(attackModules.size() - 1)).isInstanceOf(RateLimitBypassScanner.class);
     }
 }

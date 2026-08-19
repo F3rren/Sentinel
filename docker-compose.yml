@@ -49,6 +49,7 @@ services:
       SENTINEL_SCAN_MASS_ASSIGNMENT_ENABLED: ${SENTINEL_SCAN_MASS_ASSIGNMENT_ENABLED:-false}
       SENTINEL_SCAN_JWT_WEAK_SECRET_ENABLED: ${SENTINEL_SCAN_JWT_WEAK_SECRET_ENABLED:-false}
       SENTINEL_SCAN_RATE_LIMIT_ENABLED: ${SENTINEL_SCAN_RATE_LIMIT_ENABLED:-true}
+      SENTINEL_SCAN_RATE_LIMIT_BYPASS_ENABLED: ${SENTINEL_SCAN_RATE_LIMIT_BYPASS_ENABLED:-true}
       SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE: ${SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE:-130}
       # GET-only by default: iterating usually means re-running the same scan against the same
       # local victim repeatedly, and this guarantees that never mutates its data. Widen this in
