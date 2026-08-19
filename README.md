@@ -9,7 +9,26 @@ Sentinel is an **automated security testing** tool: given an application's addre
 1. **Endpoint discovery**, in two phases:
    - **OpenAPI/Swagger** (preferred phase): tries to read a spec at `/v3/api-docs`, `/v2/api-docs`, `/swagger.json`, `/openapi.json`, etc. If the target is an API gateway aggregating multiple services (springdoc `swagger-config` or springfox `swagger-resources`), it follows the aggregation and fetches every downstream service's spec. When an operation documents a JSON `requestBody` (typical of POST/PUT/PATCH), it also generates a type-aware sample body (resolving `$ref`s against `components/schemas`: integers as numbers, booleans as booleans, strings with a consistent format), so the endpoint receives a request it can actually process instead of immediately rejecting it with 415/400 for a missing or wrongly-shaped body. Required properties are always populated; optional ones are populated too unless they carry a `pattern` constraint or are an array/object - values a generic sample can't safely guess without risking a validation failure that an absent field would otherwise skip. Fields with no format/enum/pattern constraint get a random, clearly-synthetic `sentinel-<token>` value rather than a plain word like "test" - easy to tell apart from real user data and to grep for in the target's logs/database afterward.
    - **HTML crawling**: if no spec is found (or in addition to it), it parses the target's page for links with a query string and forms, merging them (deduplicated) with whatever Swagger already found.
-2. **Attack**, fifteen modules:
+2. **Attack**, fifteen modules. Quick reference (full detail below the table):
+
+   | Module | Findings (severity) | Default |
+   |---|---|---|
+   | SQL Injection | `SQL_INJECTION_ERROR_BASED` (CRITICAL), `SQL_INJECTION_BOOLEAN_BASED` (HIGH) | opt-out |
+   | Missing Authentication | `MISSING_AUTHENTICATION` (HIGH mutating / MEDIUM otherwise) | opt-out |
+   | Brute Force | `WEAK_CREDENTIALS` (CRITICAL), `MISSING_BRUTE_FORCE_PROTECTION` (LOW) | opt-out |
+   | Security Misconfiguration | `MISSING_SECURITY_HEADERS` (LOW), `PERMISSIVE_CORS` (MEDIUM/HIGH), `SERVER_BANNER_DISCLOSURE` (LOW) | opt-out |
+   | XSS | `REFLECTED_XSS` (HIGH), `UNSANITIZED_INPUT_REFLECTION` (LOW) | opt-out |
+   | Excessive Data Exposure | `EXCESSIVE_DATA_EXPOSURE` (CRITICAL/HIGH) | opt-out |
+   | Verbose Error Disclosure | `VERBOSE_ERROR_DISCLOSURE` (HIGH/MEDIUM) | opt-out |
+   | Actuator Exposure | `EXPOSED_ACTUATOR_ENDPOINT` (CRITICAL → LOW, by endpoint ID) | opt-out |
+   | Sensitive File Exposure | `EXPOSED_SENSITIVE_FILE` (CRITICAL/HIGH/MEDIUM, by file) | opt-out |
+   | Rate Limit | `MISSING_RATE_LIMITING` (LOW) | opt-out |
+   | Rate Limit Bypass | `RATE_LIMIT_BYPASS` (HIGH) | opt-out |
+   | IDOR/BOLA | `IDOR` (CRITICAL mutating / HIGH otherwise) | opt-in - needs 2 identities |
+   | BFLA | `BFLA` (CRITICAL mutating / HIGH otherwise) | opt-in - needs 1+ identity |
+   | Mass Assignment / BOPLA | `MASS_ASSIGNMENT` (CRITICAL/HIGH) | opt-in - needs 1+ identity |
+   | JWT Weak Secret | `WEAK_JWT_SECRET` (CRITICAL) | opt-in - needs a JWT identity |
+
    - **SQL Injection**: both error-based (fingerprinting MySQL/MariaDB, PostgreSQL, MSSQL, Oracle, SQLite, and JDBC/Hibernate error messages) and boolean-based/blind (heuristic on injected true/false conditions). A response throttled by the target's own rate limiting (HTTP 429) on either side of the true/false comparison is treated as inconclusive rather than a signal, since it reflects Sentinel's own request volume, not the application's query logic.
    - **Missing Authentication**: flags endpoints that respond successfully (2xx) to a request carrying no credentials at all (Sentinel never sends an authentication header). A 401/403 response is treated as proof that authentication is enforced (no finding); any other status (400/404/5xx) is inconclusive and ignored. Thanks to the JSON body generated from the OpenAPI schema, this now also works for POST/PUT/PATCH endpoints that require a body - previously they almost always returned 415 (inconclusive), now they can receive a real response. This only answers "does this endpoint require authentication at all?" - whether one authenticated identity can access another's specific resource is what the IDOR module below checks instead.
    - **IDOR/BOLA** (opt-in, `sentinel.scan.idor.enabled=true`): needs two distinct identities to compare, supplied per-scan via `POST /api/scans`' `identities` field - every other module runs fully anonymous, so this is the only one that requires setup. When it sees a `POST` to a top-level collection (e.g. `/aquariums`), it creates a resource as identity A and reads the new id out of the JSON response; when it later sees a top-level item URL for that same collection (e.g. `/aquariums/{id}`), it substitutes the id A actually created and repeats the request as identity B. A 2xx response means B could access or modify a resource it doesn't own - reported as `IDOR` (CRITICAL for a mutating verb, HIGH otherwise); a 401/403/404 is the correct, secure outcome and produces no finding. v1 only implements this high-confidence, provable-ownership case (nested resources, e.g. `/aquariums/{id}/inhabitants/{inhabitantId}`, are out of scope - it's ambiguous which identity should be considered their owner), and stays silent for a collection whose create step wasn't observed in that same scan rather than guessing.
