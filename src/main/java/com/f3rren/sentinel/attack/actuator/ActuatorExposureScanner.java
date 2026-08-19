@@ -40,7 +40,7 @@ import java.util.UUID;
  * copy of whatever it just found exposed.
  */
 @Component
-@Order(7)
+@Order(8)
 @ConditionalOnProperty(prefix = "sentinel.scan.actuator-exposure", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class ActuatorExposureScanner implements AttackModule {
 

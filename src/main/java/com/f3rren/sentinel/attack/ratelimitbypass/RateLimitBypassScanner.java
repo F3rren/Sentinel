@@ -43,7 +43,7 @@ import java.util.UUID;
  * starved of a clean response.
  */
 @Component
-@Order(9)
+@Order(10)
 @ConditionalOnProperty(prefix = "sentinel.scan.rate-limit-bypass", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class RateLimitBypassScanner implements AttackModule {
 

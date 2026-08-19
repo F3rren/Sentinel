@@ -40,7 +40,7 @@ import java.util.regex.Pattern;
  * value it found: the report itself must not become a copy of whatever secret it just uncovered.
  */
 @Component
-@Order(6)
+@Order(7)
 @ConditionalOnProperty(prefix = "sentinel.scan.sensitive-file-exposure", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class SensitiveFileExposureScanner implements AttackModule {
 
