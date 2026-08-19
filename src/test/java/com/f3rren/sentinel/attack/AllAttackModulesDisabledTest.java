@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "sentinel.scan.xss.enabled=false",
         "sentinel.scan.data-exposure.enabled=false",
         "sentinel.scan.actuator-exposure.enabled=false",
+        "sentinel.scan.sensitive-file-exposure.enabled=false",
         "sentinel.scan.rate-limit.enabled=false",
         "sentinel.scan.rate-limit-bypass.enabled=false"
 })

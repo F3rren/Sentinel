@@ -8,6 +8,7 @@ import com.f3rren.sentinel.attack.dataexposure.DataExposureScanner;
 import com.f3rren.sentinel.attack.misconfig.SecurityMisconfigurationScanner;
 import com.f3rren.sentinel.attack.ratelimit.RateLimitScanner;
 import com.f3rren.sentinel.attack.ratelimitbypass.RateLimitBypassScanner;
+import com.f3rren.sentinel.attack.sensitivefile.SensitiveFileExposureScanner;
 import com.f3rren.sentinel.attack.sqli.SqlInjectionScanner;
 import com.f3rren.sentinel.attack.xss.XssScanner;
 import org.junit.jupiter.api.Test;
@@ -30,7 +31,7 @@ class AttackModuleEnablementTest {
 
     @Test
     void everyModuleIsRegisteredByDefault() {
-        assertThat(attackModules).hasSize(9);
+        assertThat(attackModules).hasSize(10);
         assertThat(attackModules).hasAtLeastOneElementOfType(SqlInjectionScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(MissingAuthenticationScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(BruteForceScanner.class);
@@ -38,6 +39,7 @@ class AttackModuleEnablementTest {
         assertThat(attackModules).hasAtLeastOneElementOfType(XssScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(DataExposureScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(ActuatorExposureScanner.class);
+        assertThat(attackModules).hasAtLeastOneElementOfType(SensitiveFileExposureScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(RateLimitScanner.class);
         assertThat(attackModules).hasAtLeastOneElementOfType(RateLimitBypassScanner.class);
     }
