@@ -2,7 +2,15 @@
 
 Sentinel is an **automated security testing** tool: given an application's address (e.g. `localhost:8080`), it discovers the exposed endpoints and launches automated attacks to find vulnerabilities, returning a report with severity and remediation guidance.
 
-> **Intended use**: only against applications you are authorized to security-test (your own projects, staging environments, an authorized pentest target). Do not point it at third-party systems without explicit consent.
+## ⚠️ Disclaimer — read before using
+
+**Sentinel is an offensive security tool. It actively attacks whatever target you point it at, and it can be pointed at any host reachable over the network.** Use it with extreme caution.
+
+- **Authorized use only.** Run it exclusively against systems you own or for which you hold explicit, written authorization to perform security testing (your own projects, a staging environment, an in-scope penetration-testing engagement, a CTF you are entered in). Scanning, probing, or attacking systems without the owner's permission is illegal in most jurisdictions and may constitute a criminal offense.
+- **You are solely responsible.** By running Sentinel you accept full and sole responsibility for how, and against what, you use it. Any consequence of its use — including but not limited to service disruption, data loss or corruption, resource exhaustion, account lockouts, triggered defenses, financial cost, or legal liability — is **attributable entirely to you, the person operating the tool, and never to its authors, contributors, or distributors.**
+- **No warranty, no liability.** The software is provided "as is", without warranty of any kind, express or implied. To the maximum extent permitted by applicable law, the authors and contributors shall not be liable for any claim, damage, or other liability arising from, out of, or in connection with the software or its use. If you do not accept these terms, do not use the software.
+
+By default Sentinel attacks only read-only (`GET`) endpoints so a scan cannot mutate a target's data; enabling write methods (`POST`/`PUT`/`PATCH`/`DELETE`) is a deliberate, opt-in choice whose consequences are yours alone.
 
 ## What it does today
 
@@ -42,20 +50,39 @@ Sentinel is an **automated security testing** tool: given an application's addre
 
 The app starts on `http://localhost:8080`.
 
-### With Docker, against an already-running "victim" app
+### With Docker
 
-If the victim already runs via its own `docker-compose`, Sentinel can join the same Docker network to reach it by container name instead of `localhost`:
+The published image is self-contained - no source checkout, no Maven, no build step:
 
 ```bash
-cp env.example .env
-# open .env and set VICTIM_NETWORK_NAME to the victim's real network name
-# (find it with: docker network ls)
+docker run --rm -p 8088:8080 ghcr.io/f3rren/sentinel:latest
+# pin a release instead of latest: ghcr.io/f3rren/sentinel:1.0.0
+```
+
+Sentinel is then reachable at `http://localhost:8088`. There are two Compose files for the two networking situations:
+
+**a) Standalone / any target by URL** (`docker-compose.standalone.yml`) - the general case: scan a public host, a remote IP, or a port mapped on your own machine, without needing the target's Docker network to exist.
+
+```bash
+docker compose -f docker-compose.standalone.yml up -d
+curl -X POST http://localhost:8088/api/scans \
+  -H "Content-Type: application/json" \
+  -d '{"targetUrl": "https://target.example.com"}'
+```
+
+To reach a service on a port mapped to your own machine, use `host.docker.internal` as the host (e.g. `{"targetUrl": "http://host.docker.internal:9090"}`).
+
+**b) Same Docker host as the victim** (`docker-compose.yml`) - when the victim runs via its own `docker-compose` and you want to reach it by container name: Sentinel joins the victim's Docker network.
+
+```bash
+cp .env.example .env
+# set VICTIM_NETWORK_NAME to the victim's real network name (docker network ls)
 docker compose up -d --build
 ```
 
-Sentinel will be reachable at `http://localhost:8088`. Details and troubleshooting are in the comments of `docker-compose.yml` and `env.example`. `src/` is bind-mounted into the container, so after a code change `docker compose restart sentinel` picks it up in a few seconds - no image rebuild needed. Defaults are conservative for repeated local iteration: `GET`-only (`SENTINEL_SCAN_ALLOWED_HTTP_METHODS`) so a scan never mutates data, and `DEBUG` HTTP logging (`SENTINEL_LOG_HTTP_LEVEL`). Widen either in `.env` once needed.
+Both files default to the published image (`SENTINEL_VERSION` pins a release) and fall back to a local build with `--build`. Defaults are conservative: `GET`-only (`SENTINEL_SCAN_ALLOWED_HTTP_METHODS`) so a scan never mutates data. Details and troubleshooting are in each file's comments and `.env.example`.
 
-**Fully automatic scan**: set `SENTINEL_SCAN_AUTO_TARGET_URL` in `.env` to the victim's URL and Sentinel scans it on its own once reachable, no manual request needed:
+**Fully automatic scan**: set `SENTINEL_SCAN_AUTO_TARGET_URL` (in `.env` or the environment) to the target's URL and Sentinel scans it on its own once reachable, no manual request needed:
 
 ```bash
 curl http://localhost:8088/api/scans/latest

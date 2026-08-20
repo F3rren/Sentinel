@@ -1,35 +1,35 @@
-# Runs Sentinel joined to an already-running victim's Docker network so it can reach it by
-# container name (e.g. http://api-gateway:8080) instead of localhost. Defaults to aquarium-ms's
-# own network name (see the networks: section below), so against that victim specifically no
-# .env edit is needed at all - just start it first. Works against any victim with its own
-# docker-compose stack though, not only that one: point VICTIM_NETWORK_NAME in .env at a
-# different one when needed.
+# ── Victim-network mode ───────────────────────────────────────────────────────────────
+# Use this file when Sentinel and the victim run on the SAME Docker host and you want to reach
+# the victim by container name (e.g. http://api-gateway:8080): Sentinel joins the victim's own
+# Docker network. Defaults to aquarium-ms's network name (see the networks: section), so against
+# that victim no .env edit is needed - just start it first. Works against any victim with its own
+# docker-compose stack: point VICTIM_NETWORK_NAME in .env at a different one when needed.
+#
+# To scan ANY target by URL instead (a public host, a remote IP, or a port mapped on your own
+# machine) - without needing the victim's Docker network to exist at all - use
+# docker-compose.standalone.yml instead. This file is only for the join-the-victim's-network case.
 #
 # Plug-and-play setup:
 #   1. Start the victim stack first (from its own repo): docker compose up -d
-#   2. Only if targeting a victim other than aquarium-ms: cp env.example .env, then set
-#      VICTIM_NETWORK_NAME to that victim's real Docker network name (docker network ls -
-#      see env.example for how Compose derives it). `docker compose up` below reads .env
-#      automatically from now on, every time, no shell exports needed.
+#   2. Only if targeting a victim other than aquarium-ms: cp .env.example .env, then set
+#      VICTIM_NETWORK_NAME to that victim's real Docker network name (docker network ls).
 #   3. docker compose up -d --build
 #
-# After a code change: docker compose restart sentinel (src/ is bind-mounted - no image rebuild
-# needed, see Dockerfile).
+# The image is a self-contained jar build (see Dockerfile), so after a code change rebuild with
+# `docker compose up -d --build` to pick it up.
 #
-# If SENTINEL_SCAN_AUTO_TARGET_URL is also set in .env, that's the whole procedure - Sentinel
-# waits for the victim to actually be accepting requests on its own (most victim projects have
-# no startup healthcheck, so there's no other way to know) and then scans it automatically, no
-# manual POST /api/scans required. Fetch the result whenever you want it:
+# If SENTINEL_SCAN_AUTO_TARGET_URL is also set in .env, Sentinel waits for the victim to start
+# accepting requests and scans it automatically on startup - no manual POST /api/scans needed:
 #   GET http://localhost:8088/api/scans/latest
 #
-# Without SENTINEL_SCAN_AUTO_TARGET_URL, trigger scans by hand instead:
+# Without it, trigger scans by hand:
 #   POST http://localhost:8088/api/scans  {"targetUrl": "http://<victim-entrypoint>:<port>"}
 #
-# Every scan is also saved as a JSON file under ./reports on your host (bind-mounted below),
-# so results survive `docker compose down` and can be reviewed without hitting the API.
+# Every scan is also saved as a JSON file under ./reports on your host (bind-mounted below).
 
 services:
   sentinel:
+    image: ghcr.io/f3rren/sentinel:${SENTINEL_VERSION:-latest}
     build: .
     container_name: sentinel
     ports:
@@ -53,14 +53,12 @@ services:
       SENTINEL_SCAN_RATE_LIMIT_ENABLED: ${SENTINEL_SCAN_RATE_LIMIT_ENABLED:-true}
       SENTINEL_SCAN_RATE_LIMIT_BYPASS_ENABLED: ${SENTINEL_SCAN_RATE_LIMIT_BYPASS_ENABLED:-true}
       SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE: ${SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE:-130}
-      # GET-only by default: iterating usually means re-running the same scan against the same
-      # local victim repeatedly, and this guarantees that never mutates its data. Widen this in
-      # .env once you deliberately want to exercise write endpoints too.
+      # GET-only by default: re-running a scan against a local victim never mutates its data.
+      # Widen this in .env once you deliberately want to exercise write endpoints too.
       SENTINEL_SCAN_ALLOWED_HTTP_METHODS: ${SENTINEL_SCAN_ALLOWED_HTTP_METHODS:-GET}
       # DEBUG by default, for full visibility while iterating against a local victim.
       SENTINEL_LOG_HTTP_LEVEL: ${SENTINEL_LOG_HTTP_LEVEL:-DEBUG}
     volumes:
-      - ./src:/app/src:ro
       - ./reports:/app/reports
     networks:
       - victim-network

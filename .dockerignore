@@ -4,3 +4,6 @@ target/
 *.iml
 .vscode/
 .mvn/wrapper/maven-wrapper.jar
+reports/
+.env
+*.log

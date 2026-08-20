@@ -1,0 +1,59 @@
+# ── Standalone / general mode ─────────────────────────────────────────────────────────
+# Run Sentinel against ANY target reachable by URL - a public host, a remote IP, or a port
+# mapped on your own machine - WITHOUT needing the victim's own Docker network to exist. Sentinel
+# runs on its own default bridge network here, so `up` never fails for a missing external network.
+#
+#   docker compose -f docker-compose.standalone.yml up -d
+#   curl -X POST http://localhost:8088/api/scans \
+#     -H "Content-Type: application/json" \
+#     -d '{"targetUrl": "https://target.example.com"}'
+#   curl http://localhost:8088/api/scans/latest
+#
+# To hit a service listening on a port mapped to YOUR machine (e.g. localhost:9090), use
+# host.docker.internal as the host in targetUrl - the extra_hosts entry below makes that resolve
+# on Linux too (Docker Desktop for Mac/Windows already provides it):
+#   {"targetUrl": "http://host.docker.internal:9090"}
+#
+# By default this pulls the published image, so it works with only this one file - no source tree
+# needed. Pin a specific release with SENTINEL_VERSION (e.g. =1.0.0); or, from a full checkout,
+# `docker compose -f docker-compose.standalone.yml up -d --build` to build from source instead.
+#
+# ⚠️  This mode can point at any host on the internet. Only ever scan targets you are explicitly
+#     authorized to test - see the disclaimer in README.md. You are solely responsible for how and
+#     against what you run it.
+
+services:
+  sentinel:
+    image: ghcr.io/f3rren/sentinel:${SENTINEL_VERSION:-latest}
+    build: .
+    container_name: sentinel
+    ports:
+      - "8088:8080"
+    environment:
+      SENTINEL_SCAN_MAX_ENDPOINTS: ${SENTINEL_SCAN_MAX_ENDPOINTS:-25}
+      SENTINEL_SCAN_AUTO_TARGET_URL: ${SENTINEL_SCAN_AUTO_TARGET_URL:-}
+      SENTINEL_SCAN_SQL_INJECTION_ENABLED: ${SENTINEL_SCAN_SQL_INJECTION_ENABLED:-true}
+      SENTINEL_SCAN_MISSING_AUTHENTICATION_ENABLED: ${SENTINEL_SCAN_MISSING_AUTHENTICATION_ENABLED:-true}
+      SENTINEL_SCAN_BRUTE_FORCE_ENABLED: ${SENTINEL_SCAN_BRUTE_FORCE_ENABLED:-true}
+      SENTINEL_SCAN_SECURITY_MISCONFIGURATION_ENABLED: ${SENTINEL_SCAN_SECURITY_MISCONFIGURATION_ENABLED:-true}
+      SENTINEL_SCAN_XSS_ENABLED: ${SENTINEL_SCAN_XSS_ENABLED:-true}
+      SENTINEL_SCAN_DATA_EXPOSURE_ENABLED: ${SENTINEL_SCAN_DATA_EXPOSURE_ENABLED:-true}
+      SENTINEL_SCAN_VERBOSE_ERROR_DISCLOSURE_ENABLED: ${SENTINEL_SCAN_VERBOSE_ERROR_DISCLOSURE_ENABLED:-true}
+      SENTINEL_SCAN_ACTUATOR_EXPOSURE_ENABLED: ${SENTINEL_SCAN_ACTUATOR_EXPOSURE_ENABLED:-true}
+      SENTINEL_SCAN_SENSITIVE_FILE_EXPOSURE_ENABLED: ${SENTINEL_SCAN_SENSITIVE_FILE_EXPOSURE_ENABLED:-true}
+      SENTINEL_SCAN_IDOR_ENABLED: ${SENTINEL_SCAN_IDOR_ENABLED:-false}
+      SENTINEL_SCAN_BFLA_ENABLED: ${SENTINEL_SCAN_BFLA_ENABLED:-false}
+      SENTINEL_SCAN_MASS_ASSIGNMENT_ENABLED: ${SENTINEL_SCAN_MASS_ASSIGNMENT_ENABLED:-false}
+      SENTINEL_SCAN_JWT_WEAK_SECRET_ENABLED: ${SENTINEL_SCAN_JWT_WEAK_SECRET_ENABLED:-false}
+      SENTINEL_SCAN_RATE_LIMIT_ENABLED: ${SENTINEL_SCAN_RATE_LIMIT_ENABLED:-true}
+      SENTINEL_SCAN_RATE_LIMIT_BYPASS_ENABLED: ${SENTINEL_SCAN_RATE_LIMIT_BYPASS_ENABLED:-true}
+      SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE: ${SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE:-130}
+      # GET-only by default so a scan never mutates a target's data. Widen this in .env only once
+      # you deliberately, and with authorization, want to exercise write endpoints too.
+      SENTINEL_SCAN_ALLOWED_HTTP_METHODS: ${SENTINEL_SCAN_ALLOWED_HTTP_METHODS:-GET}
+      SENTINEL_LOG_HTTP_LEVEL: ${SENTINEL_LOG_HTTP_LEVEL:-INFO}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./reports:/app/reports
+    restart: "no"
