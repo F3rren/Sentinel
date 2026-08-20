@@ -1,5 +1,7 @@
 # Sentinel
 
+[![CI](https://github.com/F3rren/Sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/F3rren/Sentinel/actions/workflows/ci.yml)
+
 Sentinel is an **automated security testing** tool: given an application's address (e.g. `localhost:8080`), it discovers the exposed endpoints and launches automated attacks to find vulnerabilities, returning a report with severity and remediation guidance.
 
 ## ⚠️ Disclaimer — read before using
