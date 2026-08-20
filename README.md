@@ -8,7 +8,12 @@ Sentinel is an **automated security testing** tool: given an application's addre
 
 - **Authorized use only.** Run it exclusively against systems you own or for which you hold explicit, written authorization to perform security testing (your own projects, a staging environment, an in-scope penetration-testing engagement, a CTF you are entered in). Scanning, probing, or attacking systems without the owner's permission is illegal in most jurisdictions and may constitute a criminal offense.
 - **You are solely responsible.** By running Sentinel you accept full and sole responsibility for how, and against what, you use it. Any consequence of its use — including but not limited to service disruption, data loss or corruption, resource exhaustion, account lockouts, triggered defenses, financial cost, or legal liability — is **attributable entirely to you, the person operating the tool, and never to its authors, contributors, or distributors.**
+- **Legal compliance.** You represent and warrant that you are aware of and will comply with all applicable laws and regulations in your jurisdiction regarding security testing, computer access, and data protection (including GDPR if applicable). It is your responsibility to determine whether your use of Sentinel is lawful where you are located. Use of this software may be subject to export control regulations (EU Dual-Use Regulation 2021/821).
+- **Indemnification.** You agree to indemnify, defend, and hold harmless the authors, contributors, and distributors of Sentinel from any and all claims, liabilities, damages, losses, costs, or expenses (including reasonable legal fees) arising from your use of this software, including any use that violates applicable laws or third-party rights.
 - **No warranty, no liability.** The software is provided "as is", without warranty of any kind, express or implied. To the maximum extent permitted by applicable law, the authors and contributors shall not be liable for any claim, damage, or other liability arising from, out of, or in connection with the software or its use. If you do not accept these terms, do not use the software.
+
+**By downloading, installing, or using Sentinel, you acknowledge that you have read, understood, and agree to be bound by these terms.**
+
 
 By default Sentinel attacks only read-only (`GET`) endpoints so a scan cannot mutate a target's data; enabling write methods (`POST`/`PUT`/`PATCH`/`DELETE`) is a deliberate, opt-in choice whose consequences are yours alone.
 
