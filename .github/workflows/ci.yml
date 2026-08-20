@@ -1,0 +1,35 @@
+name: CI
+
+# Everyday safety net: runs the full test suite on every push to develop/main and on every pull
+# request targeting them, so a regression is caught the moment it lands rather than at release
+# time. The release pipeline (docker-publish.yml) runs the same tests again as a gate before
+# publishing an image - this workflow is the fast feedback while developing, that one is the
+# final block before anything reaches the registry.
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # ubuntu-latest ships a recent Maven, so the (uncommitted) wrapper jar isn't needed. The
+      # suite is self-contained - every test spins up a local HttpServer or a Spring context, none
+      # reach the network or need Postgres/Docker - so a plain runner runs it as-is.
+      - name: Run tests
+        run: mvn -B -ntp test

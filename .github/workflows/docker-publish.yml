@@ -4,6 +4,11 @@ name: Publish Docker image
 # Registry (ghcr.io/f3rren/sentinel) on every version tag. Also runnable on demand from the
 # Actions tab (workflow_dispatch) - useful to publish an image for a tag that already existed
 # before this workflow was added (e.g. v1.0.0).
+#
+# The full test suite runs first as a gate: `publish` only starts if `test` passes, so a tag on
+# red code never reaches the registry. The Dockerfile itself still builds with -DskipTests (it is
+# a pure packaging step - a user running `docker compose up --build` shouldn't have to run the
+# suite), which is exactly why the gate lives here in the pipeline instead.
 on:
   push:
     tags:
@@ -12,11 +17,30 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  publish:
+  test:
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Run tests
+        run: mvn -B -ntp test
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
