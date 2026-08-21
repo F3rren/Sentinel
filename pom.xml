@@ -10,9 +10,9 @@
 	</parent>
 	<groupId>com.f3rren</groupId>
 	<artifactId>sentinel</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>1.0.2-SNAPSHOT</version>
 	<name>sentinel</name>
-	<description/>
+	<description>Automated black-box security scanner for HTTP APIs.</description>
 	<url/>
 	<licenses>
 		<license/>

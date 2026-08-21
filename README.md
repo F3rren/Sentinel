@@ -1,5 +1,7 @@
 # Sentinel
 
+[![CI](https://github.com/F3rren/Sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/F3rren/Sentinel/actions/workflows/ci.yml)
+
 Sentinel is an **automated security testing** tool: given an application's address (e.g. `localhost:8080`), it discovers the exposed endpoints and launches automated attacks to find vulnerabilities, returning a report with severity and remediation guidance.
 
 ## ⚠️ Disclaimer — read before using
@@ -43,7 +45,7 @@ By default Sentinel attacks only read-only (`GET`) endpoints so a scan cannot mu
 
    Everything above runs fully anonymous by default; the four opt-in modules need at least one caller identity supplied via `POST /api/scans`'s `identities` field (see [Using the API](#using-the-api)). Every module can be toggled independently with `sentinel.scan.<module>.enabled` (see [Configuration](#configuration)). Each finding carries a severity, the exact evidence that triggered it, and a remediation recommendation; the specific detection mechanics, heuristics, and edge cases for each module are documented in its own class' Javadoc under `src/main/java/com/f3rren/sentinel/attack/`.
 
-3. **Report**: JSON with every finding (endpoint, parameter, payload, evidence, recommendation, severity), a summary broken down **by severity and by issue type**, a numeric risk score alongside the qualitative rating, and a `narrative` field with a human-readable summary.
+3. **Report**: JSON with every finding (endpoint, parameter, payload, evidence, recommendation, severity), a summary broken down **by severity and by issue type**, a numeric risk score alongside the qualitative rating, and a `narrative` field with a human-readable summary. Also available as **SARIF** for GitHub code scanning, and with a **fail-on gate** for pipelines (see [CI/CD integration](#cicd-integration)).
 
 ## Quick start
 
@@ -152,7 +154,37 @@ curl http://localhost:8080/api/scans/{id}
 curl http://localhost:8080/api/scans/latest   # the most recent one, manual or automatic
 ```
 
-**On file**: every completed scan is also saved as JSON in `reports/` (configurable via `sentinel.scan.reports-directory`), named `<timestamp>-<host>-<scanId>.json`. With Docker, the folder is mounted to `./reports` on the host, so files survive `docker compose down`.
+**On file**: every completed scan is also saved in `reports/` (configurable via `sentinel.scan.reports-directory`), named `<timestamp>-<host>-<scanId>` with both a `.json` and a `.sarif` extension. With Docker, the folder is mounted to `./reports` on the host, so files survive `docker compose down`.
+
+## CI/CD integration
+
+Sentinel can run as a step in a pipeline, in two complementary ways.
+
+**SARIF output** — every report is also available as [SARIF 2.1.0](https://sarifweb.azurewebsites.net/), the format GitHub code scanning ingests: uploaded to a repository, the findings show up in its **Security** tab, bucketed by severity and de-duplicated across runs. Get it from the API or the file written alongside the JSON:
+
+```bash
+curl http://localhost:8088/api/scans/latest/sarif   # or /api/scans/{id}/sarif
+# also written to reports/<...>.sarif on every scan
+```
+
+**Fail-on gate** — set `SENTINEL_SCAN_FAIL_ON` to a severity and the startup auto-scan becomes one-shot: the container exits `0` if no finding reached that severity, or `1` if one did (fails closed - exit `1` - if the scan can't even run). The report files are written before the exit, so the pipeline can still collect them. This turns Sentinel into a security gate that fails the build on findings.
+
+Example GitHub Actions job that scans a deployed target, fails on any HIGH-or-worse finding, and uploads the SARIF to code scanning:
+
+```yaml
+- name: Security scan (Sentinel)
+  run: |
+    docker run --rm \
+      -e SENTINEL_SCAN_AUTO_TARGET_URL=https://staging.example.com \
+      -e SENTINEL_SCAN_FAIL_ON=HIGH \
+      -v ${{ github.workspace }}/reports:/app/reports \
+      ghcr.io/f3rren/sentinel:latest
+- name: Upload SARIF
+  if: always()   # upload even when the gate failed the step above
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: reports
+```
 
 ## Configuration
 
@@ -169,6 +201,7 @@ Properties in `src/main/resources/application.properties` (overridable via envir
 | `sentinel.scan.auto-target-url` | _(empty)_ | If set, an automatic scan runs against this URL on startup |
 | `sentinel.scan.auto-scan-max-attempts` | `20` | Reachability attempts against the target before giving up on the auto-scan |
 | `sentinel.scan.auto-scan-retry-delay-ms` | `3000` | Wait between one attempt and the next |
+| `sentinel.scan.fail-on` | _(empty / off)_ | CI gate: a severity (`INFO`/`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`) that makes the auto-scan exit non-zero on findings at or above it. Empty keeps the app running. Applies only with `auto-target-url` set |
 | `sentinel.scan.<module>.enabled` | `true` (`false` for the 4 opt-in modules) | Per-module on/off switch - see the module table above for names |
 | `sentinel.scan.brute-force.max-attempts` | `8` | Credential pairs tried per login-shaped endpoint |
 | `sentinel.scan.rate-limit.burst-size` | `130` | Requests fired at each `GET` endpoint before concluding no throttling kicked in - must exceed the target's real capacity to be meaningful |
