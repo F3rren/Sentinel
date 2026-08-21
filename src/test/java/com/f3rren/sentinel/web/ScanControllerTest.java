@@ -5,13 +5,17 @@ import com.f3rren.sentinel.model.ScanIdentity;
 import com.f3rren.sentinel.model.ScanReport;
 import com.f3rren.sentinel.model.ScanSummary;
 import com.f3rren.sentinel.model.Severity;
+import com.f3rren.sentinel.model.FindingGroup;
+import com.f3rren.sentinel.model.FindingOccurrence;
 import com.f3rren.sentinel.model.VulnerabilityType;
+import com.f3rren.sentinel.report.SarifConverter;
 import com.f3rren.sentinel.scan.ScanService;
 import com.f3rren.sentinel.web.exception.InvalidTargetException;
 import com.f3rren.sentinel.web.exception.ScanNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -29,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(ScanController.class)
+@Import(SarifConverter.class)
 class ScanControllerTest {
 
     @Autowired
@@ -123,5 +128,35 @@ class ScanControllerTest {
         mockMvc.perform(get("/api/scans/latest"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("scan_not_found"));
+    }
+
+    @Test
+    void getScanSarifReturnsSarifForTheReport() throws Exception {
+        when(scanService.getReport("scan-1")).thenReturn(reportWithOneIdorFinding());
+
+        mockMvc.perform(get("/api/scans/scan-1/sarif"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value("2.1.0"))
+                .andExpect(jsonPath("$.runs[0].tool.driver.name").value("Sentinel"))
+                .andExpect(jsonPath("$.runs[0].results[0].ruleId").value("IDOR"));
+    }
+
+    @Test
+    void getLatestScanSarifReturnsSarifForTheLatestReport() throws Exception {
+        when(scanService.getLatestReport()).thenReturn(reportWithOneIdorFinding());
+
+        mockMvc.perform(get("/api/scans/latest/sarif"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value("2.1.0"))
+                .andExpect(jsonPath("$.runs[0].results[0].level").value("error"));
+    }
+
+    private ScanReport reportWithOneIdorFinding() {
+        FindingGroup idor = new FindingGroup("idor", VulnerabilityType.IDOR,
+                "Ownership not enforced.", "Check ownership.",
+                List.of(new FindingOccurrence("1", Severity.HIGH, "http://localhost:8080/aquariums/99", "GET", "", "", "evidence")));
+        return new ScanReport("scan-1", "http://localhost:8080", Instant.now(), Instant.now(), 42, 3, 3, null,
+                List.of(idor), new ScanSummary(1, Map.of(Severity.HIGH, 1), Map.of(VulnerabilityType.IDOR, 1), Severity.HIGH, 20, false),
+                "Investigation completed. 1 vulnerability detected.");
     }
 }

@@ -30,13 +30,16 @@ public class ReportFileWriter {
             DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC);
 
     private final ObjectMapper objectMapper;
+    private final SarifConverter sarifConverter;
     private final Path reportsDirectory;
 
     public ReportFileWriter(
             ObjectMapper objectMapper,
+            SarifConverter sarifConverter,
             @Value("${sentinel.scan.reports-directory:reports}") String reportsDirectoryRaw
     ) {
         this.objectMapper = objectMapper;
+        this.sarifConverter = sarifConverter;
         this.reportsDirectory = (reportsDirectoryRaw == null || reportsDirectoryRaw.isBlank())
                 ? null
                 : Path.of(reportsDirectoryRaw);
@@ -48,17 +51,25 @@ public class ReportFileWriter {
         }
         try {
             Files.createDirectories(reportsDirectory);
-            Path target = reportsDirectory.resolve(buildFileName(report));
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(target.toFile(), report);
-            log.info("Report saved to {}", target.toAbsolutePath());
+            String baseName = buildBaseName(report);
+
+            Path jsonTarget = reportsDirectory.resolve(baseName + ".json");
+            objectMapper.writerWithDefaultPrettyPrinter().writeValue(jsonTarget.toFile(), report);
+
+            // The same report as SARIF, alongside the JSON, so a CI step can upload it to GitHub
+            // code scanning without any conversion of its own.
+            Path sarifTarget = reportsDirectory.resolve(baseName + ".sarif");
+            objectMapper.writerWithDefaultPrettyPrinter().writeValue(sarifTarget.toFile(), sarifConverter.toSarif(report));
+
+            log.info("Report saved to {} (+ .sarif)", jsonTarget.toAbsolutePath());
         } catch (Exception e) {
             log.warn("Failed to save report {} to file: {}", report.id(), e.getMessage());
         }
     }
 
-    private String buildFileName(ScanReport report) {
+    private String buildBaseName(ScanReport report) {
         String timestamp = FILENAME_TIMESTAMP.format(report.startedAt());
-        return timestamp + "-" + safeHost(report.targetUrl()) + "-" + report.id() + ".json";
+        return timestamp + "-" + safeHost(report.targetUrl()) + "-" + report.id();
     }
 
     private String safeHost(String targetUrl) {

@@ -33,30 +33,34 @@ class ReportFileWriterTest {
     private ObjectMapper objectMapper;
 
     @Test
-    void writesReportAsJsonFileNamedWithTimestampHostAndId(@TempDir Path tempDir) throws IOException {
+    void writesReportAsBothJsonAndSarifNamedWithTimestampHostAndId(@TempDir Path tempDir) throws IOException {
         Path reportsDir = tempDir.resolve("reports");
-        ReportFileWriter writer = new ReportFileWriter(objectMapper, reportsDir.toString());
+        ReportFileWriter writer = new ReportFileWriter(objectMapper, new SarifConverter(objectMapper, "test"), reportsDir.toString());
         ScanReport report = sampleReport();
 
         writer.write(report);
 
         try (Stream<Path> files = Files.list(reportsDir)) {
             List<Path> written = files.toList();
-            assertThat(written).hasSize(1);
-            String fileName = written.get(0).getFileName().toString();
-            assertThat(fileName).endsWith(report.id() + ".json");
-            assertThat(fileName).contains("localhost");
+            assertThat(written).hasSize(2);
+            assertThat(written).anyMatch(p -> p.getFileName().toString().endsWith(report.id() + ".json"));
+            assertThat(written).anyMatch(p -> p.getFileName().toString().endsWith(report.id() + ".sarif"));
+            assertThat(written).allMatch(p -> p.getFileName().toString().contains("localhost"));
 
-            ScanReport reloaded = objectMapper.readValue(written.get(0).toFile(), ScanReport.class);
+            Path json = written.stream().filter(p -> p.getFileName().toString().endsWith(".json")).findFirst().orElseThrow();
+            ScanReport reloaded = objectMapper.readValue(json.toFile(), ScanReport.class);
             assertThat(reloaded.id()).isEqualTo(report.id());
             assertThat(reloaded.targetUrl()).isEqualTo(report.targetUrl());
             assertThat(reloaded.summary().riskScore()).isEqualTo(report.summary().riskScore());
+
+            Path sarif = written.stream().filter(p -> p.getFileName().toString().endsWith(".sarif")).findFirst().orElseThrow();
+            assertThat(objectMapper.readTree(sarif.toFile()).get("version").asString()).isEqualTo("2.1.0");
         }
     }
 
     @Test
     void doesNothingWhenReportsDirectoryIsBlank() {
-        ReportFileWriter writer = new ReportFileWriter(objectMapper, "");
+        ReportFileWriter writer = new ReportFileWriter(objectMapper, new SarifConverter(objectMapper, "test"), "");
 
         // Must not throw even though there's nowhere configured to write to.
         writer.write(sampleReport());
