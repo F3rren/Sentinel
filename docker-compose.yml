@@ -56,6 +56,13 @@ services:
       SENTINEL_SCAN_RATE_LIMIT_ENABLED: ${SENTINEL_SCAN_RATE_LIMIT_ENABLED:-true}
       SENTINEL_SCAN_RATE_LIMIT_BYPASS_ENABLED: ${SENTINEL_SCAN_RATE_LIMIT_BYPASS_ENABLED:-true}
       SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE: ${SENTINEL_SCAN_RATE_LIMIT_BURST_SIZE:-130}
+      # Optional, opt-in AI end-of-scan analysis (Claude). Best-effort and isolated from detection:
+      # it never creates/changes/hides a finding, and failures are swallowed. Set ENABLED=true and
+      # provide ANTHROPIC_API_KEY (from .env) to attach a natural-language analysis to each report.
+      SENTINEL_AI_ENABLED: ${SENTINEL_AI_ENABLED:-false}
+      SENTINEL_AI_MODEL: ${SENTINEL_AI_MODEL:-claude-opus-5}
+      SENTINEL_AI_MAX_TOKENS: ${SENTINEL_AI_MAX_TOKENS:-4000}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # GET-only by default: re-running a scan against a local victim never mutates its data.
       # Widen this in .env once you deliberately want to exercise write endpoints too.
       SENTINEL_SCAN_ALLOWED_HTTP_METHODS: ${SENTINEL_SCAN_ALLOWED_HTTP_METHODS:-GET}

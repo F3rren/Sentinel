@@ -139,9 +139,12 @@ Response (example):
     "countsBySeverity": { "...": 0 },
     "countsByType": { "SQL_INJECTION_ERROR_BASED": 1, "SQL_INJECTION_BOOLEAN_BASED": 0, "MISSING_AUTHENTICATION": 0 }
   },
-  "narrative": "Investigation of http://localhost:9090 completed in ... Detected 1 vulnerability (overall risk: CRITICAL, risk score: 40): 1 CRITICAL. By type: 1 SQL_INJECTION_ERROR_BASED."
+  "narrative": "Investigation of http://localhost:9090 completed in ... Detected 1 vulnerability (overall risk: CRITICAL, risk score: 40): 1 CRITICAL. By type: 1 SQL_INJECTION_ERROR_BASED.",
+  "aiAnalysis": null
 }
 ```
+
+`aiAnalysis` is `null` unless the opt-in [AI analysis](#ai-analysis-optional-opt-in) is enabled, in which case it holds Claude's plain-language executive summary of the report.
 
 `findings` is a list of **groups**: every occurrence sharing the same module, type, description, and recommendation collapses into one entry with an `occurrences` array, rather than repeating the same description/recommendation text per endpoint. Each occurrence carries what actually differs: `id`, `severity`, `endpointUrl`, `method`, `parameter`, `payload`, `evidence`. `summary.countsByType`/`countsBySeverity` count every individual occurrence, not groups.
 
@@ -155,6 +158,19 @@ curl http://localhost:8080/api/scans/latest   # the most recent one, manual or a
 ```
 
 **On file**: every completed scan is also saved in `reports/` (configurable via `sentinel.scan.reports-directory`), named `<timestamp>-<host>-<scanId>` with both a `.json` and a `.sarif` extension. With Docker, the folder is mounted to `./reports` on the host, so files survive `docker compose down`.
+
+## AI analysis (optional, opt-in)
+
+Sentinel can attach a plain-language executive analysis to each report, written by Claude. It's **off by default** and deliberately **isolated from the detection engine**: it runs exactly once, at the very end of a scan, on the finished and already-redacted report, and only *reads* it. It never creates, changes, or hides a finding — the deterministic result is identical whether or not AI analysis ran. It's also **best-effort**: any failure (missing key, network error, rate limit) is logged and swallowed, so enabling it can never break or fail a scan. Only the redacted report is sent to the model (field names and paths, never the underlying secret values — the same data already in the report you hold).
+
+Enable it by setting `SENTINEL_AI_ENABLED=true` and providing an `ANTHROPIC_API_KEY` (read from the environment by the official Anthropic SDK; put it in your local `.env`, never in version control):
+
+```bash
+SENTINEL_AI_ENABLED=true
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+When enabled, reports gain an `aiAnalysis` field (also present in the saved JSON) with the analysis text; it's `null` whenever AI analysis is disabled or unavailable. The model (`SENTINEL_AI_MODEL`, default `claude-opus-5`) and response budget (`SENTINEL_AI_MAX_TOKENS`, default `4000`) are configurable.
 
 ## CI/CD integration
 
@@ -205,6 +221,9 @@ Properties in `src/main/resources/application.properties` (overridable via envir
 | `sentinel.scan.<module>.enabled` | `true` (`false` for the 4 opt-in modules) | Per-module on/off switch - see the module table above for names |
 | `sentinel.scan.brute-force.max-attempts` | `8` | Credential pairs tried per login-shaped endpoint |
 | `sentinel.scan.rate-limit.burst-size` | `130` | Requests fired at each `GET` endpoint before concluding no throttling kicked in - must exceed the target's real capacity to be meaningful |
+| `sentinel.ai.enabled` | `false` | Opt-in AI end-of-scan analysis (Claude). Best-effort, isolated from detection - see [AI analysis](#ai-analysis-optional-opt-in). Needs `ANTHROPIC_API_KEY` in the environment when true |
+| `sentinel.ai.model` | `claude-opus-5` | Claude model used for the AI analysis |
+| `sentinel.ai.max-tokens` | `4000` | Max tokens for the AI analysis response |
 
 Module property names follow the table: `sql-injection`, `missing-authentication`, `brute-force`, `security-misconfiguration`, `xss`, `data-exposure`, `verbose-error-disclosure`, `actuator-exposure`, `sensitive-file-exposure`, `rate-limit`, `rate-limit-bypass`, `idor`, `bfla`, `mass-assignment`, `jwt-weak-secret`.
 
