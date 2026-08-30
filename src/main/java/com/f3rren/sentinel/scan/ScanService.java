@@ -1,6 +1,5 @@
 package com.f3rren.sentinel.scan;
 
-import com.f3rren.sentinel.ai.AiAnalysisService;
 import com.f3rren.sentinel.attack.AttackModule;
 import com.f3rren.sentinel.discovery.EndpointDiscoveryService;
 import com.f3rren.sentinel.discovery.openapi.OpenApiDiscoveryResult;
@@ -54,7 +53,6 @@ public class ScanService {
     private final ReportGenerator reportGenerator;
     private final ReportFileWriter reportFileWriter;
     private final SentinelHttpClient httpClient;
-    private final AiAnalysisService aiAnalysisService;
     private final int maxEndpoints;
     private final Set<HttpMethod> allowedHttpMethods;
     private final Map<String, ScanReport> reports = new ConcurrentHashMap<>();
@@ -70,7 +68,6 @@ public class ScanService {
             ReportGenerator reportGenerator,
             ReportFileWriter reportFileWriter,
             SentinelHttpClient httpClient,
-            AiAnalysisService aiAnalysisService,
             @Value("${sentinel.scan.max-endpoints:25}") int maxEndpoints,
             @Value("${sentinel.scan.allowed-http-methods:GET,POST,PUT,PATCH,DELETE}") String allowedHttpMethodsRaw
     ) {
@@ -80,7 +77,6 @@ public class ScanService {
         this.reportGenerator = reportGenerator;
         this.reportFileWriter = reportFileWriter;
         this.httpClient = httpClient;
-        this.aiAnalysisService = aiAnalysisService;
         this.maxEndpoints = maxEndpoints;
         this.allowedHttpMethods = parseAllowedMethods(allowedHttpMethodsRaw);
     }
@@ -193,10 +189,6 @@ public class ScanService {
         String id = UUID.randomUUID().toString();
         ScanReport report = reportGenerator.buildReport(id, targetUrl, startedAt, finishedAt,
                 endpoints.size(), endpointsToScan.size(), openApiSpecUrl, findings, requestStats);
-        // Optional, opt-in AI commentary on the finished, redacted report. Best-effort: when
-        // disabled or on any failure this returns empty and the report is stored unchanged, so
-        // the deterministic result is never affected by whether AI analysis ran.
-        report = report.withAiAnalysis(aiAnalysisService.analyze(report).orElse(null));
         reports.put(id, report);
         latestReportId.set(id);
         reportFileWriter.write(report);
