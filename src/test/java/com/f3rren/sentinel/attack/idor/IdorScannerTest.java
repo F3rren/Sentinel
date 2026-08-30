@@ -46,17 +46,23 @@ class IdorScannerTest {
     @BeforeEach
     void startServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/aquariums", exchange -> {
+        com.sun.net.httpserver.HttpHandler createHandler = exchange -> {
             createRequestCount.incrementAndGet();
             respond(exchange, 201, "{\"success\":true,\"data\":{\"id\":\"42\"}}");
-        });
-        server.createContext("/aquariums/", exchange -> {
+        };
+        com.sun.net.httpserver.HttpHandler itemHandler = exchange -> {
             itemRequestCount.incrementAndGet();
             lastItemRequestPath = exchange.getRequestURI().getPath();
             String auth = exchange.getRequestHeaders().getFirst("Authorization");
             int status = "Bearer tokenB".equals(auth) ? itemStatusForIdentityB : 200;
             respond(exchange, status, "{}");
-        });
+        };
+        // Same collection served both at the root and under an /api base path, so the base-path
+        // tests exercise a genuinely prefixed target without changing the rest of the setup.
+        server.createContext("/aquariums", createHandler);
+        server.createContext("/aquariums/", itemHandler);
+        server.createContext("/api/aquariums", createHandler);
+        server.createContext("/api/aquariums/", itemHandler);
         server.start();
         baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
 
@@ -203,6 +209,56 @@ class IdorScannerTest {
 
         assertThat(findings).isEmpty();
         assertThat(itemRequestCount.get()).isZero();
+    }
+
+    @Test
+    void ignoresApiPrefixedEndpointsWhenNoBasePathConfigured() {
+        // Documents the limitation the base-path option fixes: with no base path, an /api-prefixed
+        // collection has one segment too many, so the create is never even recognized and nothing
+        // is tested - exactly what happens against a real API mounted under /api.
+        itemStatusForIdentityB = 200; // would be vulnerable, if it were ever checked
+        scanner.beginScan(new ScanContext(IDENTITY_A, IDENTITY_B));
+        scanner.scan(new Endpoint(baseUrl + "/api/aquariums", HttpMethod.POST, List.of()));
+        scanner.scan(new Endpoint(baseUrl + "/api/aquariums/1", HttpMethod.GET, List.of()));
+
+        List<Finding> findings = scanner.endScan();
+
+        assertThat(findings).isEmpty();
+        assertThat(createRequestCount.get()).isZero();
+        assertThat(itemRequestCount.get()).isZero();
+    }
+
+    @Test
+    void flagsIdorUnderAConfiguredBasePath() {
+        itemStatusForIdentityB = 200; // vulnerable outcome
+        IdorScanner apiScanner = new IdorScanner(new SentinelHttpClient("Sentinel-Test/1.0", 5000, 3000), "/api");
+        apiScanner.beginScan(new ScanContext(IDENTITY_A, IDENTITY_B));
+        apiScanner.scan(new Endpoint(baseUrl + "/api/aquariums", HttpMethod.POST, List.of()));
+        apiScanner.scan(new Endpoint(baseUrl + "/api/aquariums/1", HttpMethod.GET, List.of()));
+
+        List<Finding> findings = apiScanner.endScan();
+
+        assertThat(findings).hasSize(1);
+        assertThat(findings.get(0).type()).isEqualTo(VulnerabilityType.IDOR);
+        // The created id (42) is substituted, and the /api prefix is preserved in the real request.
+        assertThat(findings.get(0).endpointUrl()).isEqualTo(baseUrl + "/api/aquariums/42");
+        assertThat(lastItemRequestPath).isEqualTo("/api/aquariums/42");
+    }
+
+    @Test
+    void basePathOnlyStripsWhenTheUrlActuallySitsUnderIt() {
+        // A base path of /api must not affect a root-mounted collection: the leading segments don't
+        // match, so nothing is stripped and the ordinary top-level pair is still recognized.
+        itemStatusForIdentityB = 200; // vulnerable outcome
+        IdorScanner apiScanner = new IdorScanner(new SentinelHttpClient("Sentinel-Test/1.0", 5000, 3000), "/api");
+        apiScanner.beginScan(new ScanContext(IDENTITY_A, IDENTITY_B));
+        apiScanner.scan(new Endpoint(baseUrl + "/aquariums", HttpMethod.POST, List.of()));
+        apiScanner.scan(new Endpoint(baseUrl + "/aquariums/1", HttpMethod.GET, List.of()));
+
+        List<Finding> findings = apiScanner.endScan();
+
+        assertThat(findings).hasSize(1);
+        assertThat(findings.get(0).endpointUrl()).isEqualTo(baseUrl + "/aquariums/42");
     }
 
     private void respond(HttpExchange exchange, int status, String body) throws IOException {

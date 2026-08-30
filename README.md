@@ -198,6 +198,7 @@ Properties in `src/main/resources/application.properties` (overridable via envir
 | `sentinel.scan.max-endpoints` | `25` | Maximum number of endpoints attacked per scan |
 | `sentinel.scan.reports-directory` | `reports` | Folder where every report is also saved as a JSON file. Empty to disable file persistence |
 | `sentinel.scan.allowed-http-methods` | `GET,POST,PUT,PATCH,DELETE` | Only endpoints with these methods get attacked. E.g. `GET` for a scan that never writes |
+| `sentinel.scan.base-path` | _(empty)_ | Common API prefix on the target (e.g. `/api`). Used by the IDOR module so `/api/x/{id}` resources are recognized as top-level collection/item pairs. Empty = API at the root |
 | `sentinel.scan.auto-target-url` | _(empty)_ | If set, an automatic scan runs against this URL on startup |
 | `sentinel.scan.auto-scan-max-attempts` | `20` | Reachability attempts against the target before giving up on the auto-scan |
 | `sentinel.scan.auto-scan-retry-delay-ms` | `3000` | Wait between one attempt and the next |

@@ -12,6 +12,8 @@ import com.f3rren.sentinel.model.Severity;
 import com.f3rren.sentinel.model.VulnerabilityType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -47,6 +49,13 @@ import java.util.regex.Pattern;
  * nested resources (e.g. {@code /aquariums/{id}/inhabitants/{inhabitantId}}) are out of scope,
  * since it's ambiguous which identity should be considered the "owner" of a nested id.
  * <p>
+ * "Top-level" is measured after stripping a configurable {@code sentinel.scan.base-path} (default
+ * none). Many APIs mount everything under a common prefix like {@code /api}, which would otherwise
+ * push every resource one segment deeper and make this module's segment counting miss every
+ * collection/item pair - e.g. {@code POST /api/bookings} would look nested rather than top-level.
+ * Setting {@code base-path=/api} makes {@code /api/bookings} + {@code /api/bookings/{id}} be
+ * recognized exactly as {@code /bookings} + {@code /bookings/{id}} would be.
+ * <p>
  * Holds state across the {@link #scan(Endpoint)} calls for a single scan (the created resource's
  * id, keyed by resource family) because this module is a singleton bean shared by every scan
  * Sentinel ever runs - {@link #beginScan(ScanContext)}/{@link #endScan()} bracket that state so
@@ -80,13 +89,22 @@ public class IdorScanner implements AttackModule {
             + "when the ownership check is missing or fails, rather than allowing by default.";
 
     private final SentinelHttpClient httpClient;
+    private final List<String> basePathSegments;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, String> createdResourceIdByFamily = new HashMap<>();
     private final List<Endpoint> pendingItemEndpoints = new ArrayList<>();
     private ScanContext scanContext;
 
-    public IdorScanner(SentinelHttpClient httpClient) {
+    @Autowired
+    public IdorScanner(SentinelHttpClient httpClient,
+                       @Value("${sentinel.scan.base-path:}") String basePath) {
         this.httpClient = httpClient;
+        this.basePathSegments = splitSegments(basePath);
+    }
+
+    // Convenience for callers/tests that don't configure a base path (equivalent to base-path="").
+    public IdorScanner(SentinelHttpClient httpClient) {
+        this(httpClient, "");
     }
 
     @Override
@@ -259,6 +277,32 @@ public class IdorScanner implements AttackModule {
         try {
             path = URI.create(url).getPath();
         } catch (IllegalArgumentException e) {
+            return List.of();
+        }
+        List<String> segments = Arrays.stream(path.split("/")).filter(segment -> !segment.isBlank()).toList();
+        return stripBasePath(segments);
+    }
+
+    /**
+     * Drops the configured base-path prefix (e.g. {@code /api}) from the front of a URL's segments,
+     * so an API mounted under a common prefix is counted as if it were at the root. Only strips
+     * when the segments actually start with the full base-path - a URL that doesn't sit under it
+     * (or when no base-path is configured) is returned unchanged.
+     */
+    private List<String> stripBasePath(List<String> segments) {
+        if (basePathSegments.isEmpty() || segments.size() < basePathSegments.size()) {
+            return segments;
+        }
+        for (int i = 0; i < basePathSegments.size(); i++) {
+            if (!segments.get(i).equals(basePathSegments.get(i))) {
+                return segments;
+            }
+        }
+        return segments.subList(basePathSegments.size(), segments.size());
+    }
+
+    private static List<String> splitSegments(String path) {
+        if (path == null || path.isBlank()) {
             return List.of();
         }
         return Arrays.stream(path.split("/")).filter(segment -> !segment.isBlank()).toList();

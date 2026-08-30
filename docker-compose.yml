@@ -59,6 +59,9 @@ services:
       # GET-only by default: re-running a scan against a local victim never mutates its data.
       # Widen this in .env once you deliberately want to exercise write endpoints too.
       SENTINEL_SCAN_ALLOWED_HTTP_METHODS: ${SENTINEL_SCAN_ALLOWED_HTTP_METHODS:-GET}
+      # Common API prefix on the victim (e.g. /api) so the IDOR module recognizes /api/x/{id}
+      # resources. Empty means the API sits at the root. See .env.example / README.
+      SENTINEL_SCAN_BASE_PATH: ${SENTINEL_SCAN_BASE_PATH:-}
       # DEBUG by default, for full visibility while iterating against a local victim.
       SENTINEL_LOG_HTTP_LEVEL: ${SENTINEL_LOG_HTTP_LEVEL:-DEBUG}
     volumes:

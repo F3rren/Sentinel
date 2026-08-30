@@ -54,6 +54,9 @@ services:
       # GET-only by default so a scan never mutates a target's data. Widen this in .env only once
       # you deliberately, and with authorization, want to exercise write endpoints too.
       SENTINEL_SCAN_ALLOWED_HTTP_METHODS: ${SENTINEL_SCAN_ALLOWED_HTTP_METHODS:-GET}
+      # Common API prefix on the target (e.g. /api) so the IDOR module recognizes /api/x/{id}
+      # resources. Empty means the API sits at the root. See .env.example / README.
+      SENTINEL_SCAN_BASE_PATH: ${SENTINEL_SCAN_BASE_PATH:-}
       SENTINEL_LOG_HTTP_LEVEL: ${SENTINEL_LOG_HTTP_LEVEL:-INFO}
     extra_hosts:
       - "host.docker.internal:host-gateway"
